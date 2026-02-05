@@ -1,6 +1,6 @@
 # Monotize
 
-> Combine multiple Git repositories into a pnpm workspace monorepo with Turborepo/Nx support
+> Combine multiple Git repositories into a workspace monorepo with pnpm, yarn, or npm — plus Turborepo/Nx support
 
 [![CI](https://github.com/pmclSF/monotize/actions/workflows/ci.yml/badge.svg)](https://github.com/pmclSF/monotize/actions/workflows/ci.yml)
 [![Security](https://github.com/pmclSF/monotize/actions/workflows/security.yml/badge.svg)](https://github.com/pmclSF/monotize/actions/workflows/security.yml)
@@ -28,7 +28,7 @@ That's it! Your repositories are now combined into a pnpm workspace monorepo.
 
 - **JavaScript/TypeScript projects** with `package.json` files
 - Combining multiple npm packages into a unified workspace
-- Projects that will use pnpm workspaces
+- Projects using pnpm, yarn, or npm workspaces
 - Teams migrating from multi-repo to monorepo architecture
 
 ### Limitations
@@ -36,7 +36,6 @@ That's it! Your repositories are now combined into a pnpm workspace monorepo.
 | Limitation | Details |
 |------------|---------|
 | **JS/TS only** | Dependency analysis only works with `package.json`. Non-JS projects (Python, Go, Rust) are copied but without conflict detection. |
-| **pnpm required** | Output is always a pnpm workspace. Yarn/npm workspaces are not supported. |
 | **No nested workspaces** | Cannot merge existing monorepos; each source should be a single-package repo. |
 | **File collisions** | Conflicting root files (like `.eslintrc.js`) are renamed with package suffix, not merged. |
 | **History preservation** | Requires `git-filter-repo` for full history; fallback to `git subtree` is limited. |
@@ -46,6 +45,7 @@ That's it! Your repositories are now combined into a pnpm workspace monorepo.
 | Feature | Description |
 |---------|-------------|
 | **Smart Merging** | Combine multiple repositories with intelligent dependency conflict detection and resolution |
+| **Multi-PM Support** | Generate workspaces for pnpm (default), yarn (v1 & berry), or npm |
 | **Git History Preservation** | Keep commit history from source repositories using git-filter-repo or git subtree |
 | **Turborepo/Nx Support** | Generate workspace configs with task pipelines based on detected scripts |
 | **CI/CD Merging** | Automatically combine GitHub Actions workflows with namespaced jobs |
@@ -75,8 +75,10 @@ npx monorepo-cli <command>
 | Requirement | Version | Notes |
 |-------------|---------|-------|
 | Node.js | 18+ | Required |
-| pnpm | 8+ | Required - install with `npm install -g pnpm` |
 | git | 2.0+ | Required for cloning |
+| pnpm | 8+ | Required if using pnpm (default) |
+| yarn | 1.x or 2+ | Required if using `--package-manager yarn` or `yarn-berry` |
+| npm | 7+ | Required if using `--package-manager npm` |
 | git-filter-repo | any | Optional, for `--preserve-history` |
 
 ## Commands
@@ -98,11 +100,12 @@ monorepo merge <repos...> [options]
 |--------|-------------|---------|
 | `-o, --output <dir>` | Output directory | `./monorepo` |
 | `-p, --packages-dir <name>` | Packages subdirectory | `packages` |
+| `--package-manager <pm>` | Package manager (`pnpm`, `yarn`, `yarn-berry`, `npm`) | `pnpm` |
 | `--dry-run` | Show plan without executing | - |
 | `-y, --yes` | Skip prompts, use defaults | - |
 | `--conflict-strategy <strategy>` | Resolution strategy (`highest`, `lowest`, `prompt`) | `prompt` |
 | `-v, --verbose` | Verbose output | - |
-| `--no-install` | Skip `pnpm install` | - |
+| `--no-install` | Skip dependency installation | - |
 | `--no-hoist` | Keep dependencies in each package | - |
 | `--pin-versions` | Remove ^ and ~ from versions | - |
 | `--preserve-history` | Preserve git commit history | - |
@@ -112,8 +115,17 @@ monorepo merge <repos...> [options]
 **Examples:**
 
 ```bash
-# Basic merge from GitHub
+# Basic merge from GitHub (uses pnpm by default)
 monorepo merge owner/repo1 owner/repo2
+
+# Merge with yarn workspaces
+monorepo merge owner/repo1 owner/repo2 --package-manager yarn
+
+# Merge with npm workspaces
+monorepo merge owner/repo1 owner/repo2 --package-manager npm
+
+# Merge with yarn berry (v2+)
+monorepo merge owner/repo1 owner/repo2 --package-manager yarn-berry
 
 # Merge local directories with Turborepo
 monorepo merge ./app1 ./app2 --workspace-tool turbo -o my-monorepo
@@ -124,7 +136,7 @@ monorepo merge owner/repo1 owner/repo2 -y --conflict-strategy highest
 # Preview what would happen without making changes
 monorepo merge owner/repo1 owner/repo2 --dry-run
 
-# Skip pnpm install (useful for CI or when you want to review first)
+# Skip dependency installation (useful for CI or when you want to review first)
 monorepo merge owner/repo1 owner/repo2 --no-install
 ```
 
@@ -183,6 +195,7 @@ monorepo init [directory] [options]
 | Option | Description | Default |
 |--------|-------------|---------|
 | `-p, --packages-dir <name>` | Packages subdirectory | `packages` |
+| `--package-manager <pm>` | Package manager (`pnpm`, `yarn`, `yarn-berry`, `npm`) | `pnpm` |
 | `--workspace-tool <tool>` | Workspace tool (`turbo`, `nx`, `none`) | `none` |
 | `--no-git` | Skip git initialization | - |
 | `-v, --verbose` | Verbose output | - |
@@ -190,8 +203,14 @@ monorepo init [directory] [options]
 **Examples:**
 
 ```bash
-# Initialize with Turborepo
+# Initialize with Turborepo (pnpm by default)
 monorepo init my-monorepo --workspace-tool turbo
+
+# Initialize with yarn workspaces
+monorepo init my-monorepo --package-manager yarn
+
+# Initialize with npm workspaces
+monorepo init my-monorepo --package-manager npm
 
 # Initialize in current directory without git
 monorepo init . --no-git
@@ -245,6 +264,42 @@ cd my-monorepo
 pnpm install
 pnpm build  # Runs: nx run-many --target=build
 ```
+
+### Choosing a Package Manager
+
+Monotize supports multiple package managers. Choose based on your team's preferences:
+
+| Package Manager | Flag | Workspace Config | Best For |
+|-----------------|------|------------------|----------|
+| **pnpm** (default) | `--package-manager pnpm` | `pnpm-workspace.yaml` | Disk efficiency, strict dependency isolation |
+| **yarn (classic)** | `--package-manager yarn` | `package.json` workspaces | Teams already using yarn v1 |
+| **yarn (berry)** | `--package-manager yarn-berry` | `package.json` workspaces | Modern yarn with PnP support |
+| **npm** | `--package-manager npm` | `package.json` workspaces | Universal availability, simplicity |
+
+```bash
+# Using yarn workspaces
+monorepo merge owner/repo1 owner/repo2 --package-manager yarn
+cd my-monorepo
+yarn install
+yarn workspaces run build
+
+# Using npm workspaces
+monorepo merge owner/repo1 owner/repo2 --package-manager npm
+cd my-monorepo
+npm install
+npm run build -ws
+
+# Using yarn berry
+monorepo merge owner/repo1 owner/repo2 --package-manager yarn-berry
+cd my-monorepo
+yarn install
+yarn workspaces foreach run build
+```
+
+**Key differences:**
+- **pnpm**: Uses `pnpm-workspace.yaml` for workspace config, `workspace:*` protocol for internal deps
+- **yarn/npm**: Uses `workspaces` field in `package.json`, simpler setup
+- **yarn-berry**: Same as yarn but uses `workspace:*` protocol and modern `foreach` command
 
 ### Handling Dependency Conflicts
 
@@ -388,7 +443,7 @@ my-monorepo/
 │   └── workflows/
 │       └── ci.yml            # Merged workflows (if applicable)
 ├── package.json              # Root workspace config
-├── pnpm-workspace.yaml       # pnpm workspace definition
+├── pnpm-workspace.yaml       # pnpm only (yarn/npm use package.json workspaces)
 ├── turbo.json                # If --workspace-tool turbo
 ├── nx.json                   # If --workspace-tool nx
 ├── .gitignore                # Merged from all repos
@@ -398,17 +453,24 @@ my-monorepo/
 ### Root package.json
 
 The generated root `package.json` includes:
-- `packageManager` field with your pnpm version (required by Turbo)
-- Aggregated scripts (`build`, `test`, `lint`) using workspace tool or pnpm
+- `packageManager` field with your chosen package manager and version
+- `workspaces` field (for yarn/npm only; pnpm uses `pnpm-workspace.yaml`)
+- Aggregated scripts (`build`, `test`, `lint`) using workspace tool or PM commands
 - Per-package scripts (`repo1:build`, `repo2:test`)
 - Hoisted dependencies (unless `--no-hoist`)
 
 ## Troubleshooting
 
-### "pnpm not found"
+### Package manager not found
 
 ```bash
+# Install pnpm
 npm install -g pnpm
+
+# Install yarn
+npm install -g yarn
+
+# npm comes with Node.js
 ```
 
 ### "Could not find [task] in root turbo.json"
@@ -451,10 +513,9 @@ This is expected. Monotize only analyzes `package.json` files. Python, Go, Rust,
 ## Known Limitations
 
 1. **No monorepo-to-monorepo merging**: Each source repo should be a single package
-2. **No Yarn/npm workspaces**: Output is always pnpm
-3. **File collision handling**: Root-level config files with conflicts are renamed, not merged
-4. **Workflow merging**: Complex CI/CD setups may need manual adjustment
-5. **Peer dependencies**: May require `--no-hoist` for packages with conflicting peers
+2. **File collision handling**: Root-level config files with conflicts are renamed, not merged
+3. **Workflow merging**: Complex CI/CD setups may need manual adjustment
+4. **Peer dependencies**: May require `--no-hoist` for packages with conflicting peers
 
 ## Contributing
 

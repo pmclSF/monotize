@@ -1,7 +1,7 @@
 {
   "name": "monorepo-cli",
   "version": "0.2.0",
-  "description": "Combine multiple Git repositories into a monorepo with workspace support",
+  "description": "Combine multiple Git repositories into a monorepo with pnpm, yarn, or npm workspace support",
   "type": "module",
   "bin": {
     "monorepo": "./bin/monorepo.js",
@@ -45,7 +45,11 @@
     "cli",
     "git",
     "workspace",
-    "pnpm"
+    "pnpm",
+    "yarn",
+    "npm",
+    "turborepo",
+    "nx"
   ],
   "license": "MIT"
 }
