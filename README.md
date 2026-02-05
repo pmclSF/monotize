@@ -307,6 +307,70 @@ monorepo merge owner/repo1 owner/repo2 --workflow-strategy skip
 
 **Recommendation:** Use `--workflow-strategy skip` for complex CI setups and configure workflows manually after merge.
 
+## Real-World Examples
+
+### Example 1: Merging JavaScript packages (works great)
+
+```bash
+$ monorepo merge sindresorhus/slugify sindresorhus/camelcase -o string-utils --workspace-tool turbo -y
+
+✓ Found 2 repositories to merge
+✓ Processed slugify
+✓ Processed camelcase
+⚠ Found 1 dependency conflicts (0 incompatible, 0 major, 1 minor)
+⚠ Found 10 file collisions
+
+✓ Monorepo created successfully!
+
+  Location: ./string-utils
+  Packages: 2
+  Resolved conflicts: 1
+
+$ cd string-utils && pnpm install && pnpm test
+
+• Packages in scope: @sindresorhus/slugify, camelcase
+• Running test in 2 packages
+
+@sindresorhus/slugify:test: 22 tests passed
+camelcase:test: 20 tests passed
+
+Tasks:    2 successful, 2 total
+```
+
+The generated `turbo.json` only includes `test` (not `build`) because these packages don't have build scripts.
+
+### Example 2: Merging non-JavaScript projects (limited support)
+
+```bash
+$ monorepo analyze vllm-project/vllm containers/podman
+
+Repository Analysis
+
+Packages found:
+  (none - no package.json files found)
+
+Dependency conflicts:
+  None detected
+
+File collisions:
+  • .gitignore (in: vllm, podman) → merge
+  • LICENSE (in: vllm, podman) → keep-first
+  • README.md (in: vllm, podman) → keep-first
+  • .dockerignore (in: vllm, podman) → rename
+  • pyproject.toml (in: vllm, podman) → rename
+
+Complexity score:
+  18/100 (Low)
+```
+
+**What this means:** vLLM (Python) and Podman (Go) have no `package.json`, so:
+- No dependency conflict detection (Python/Go deps not analyzed)
+- Files are still copied and organized into `packages/`
+- File collisions are detected and handled
+- No Turbo/Nx task generation (no scripts to detect)
+
+For non-JS projects, monotize is essentially a smart file copier with collision detection. You'll need to set up build tooling manually.
+
 ## Output Structure
 
 ```
@@ -382,7 +446,7 @@ monorepo merge ./large-repo ./other-repo
 
 ### Non-JS projects show no dependency conflicts
 
-This is expected. Monotize only analyzes `package.json` files. Python, Go, Rust, and other projects will be copied but without dependency analysis.
+This is expected. Monotize only analyzes `package.json` files. Python, Go, Rust, and other projects will be copied but without dependency analysis. See [Example 2](#example-2-merging-non-javascript-projects-limited-support) in the Real-World Examples section.
 
 ## Known Limitations
 
