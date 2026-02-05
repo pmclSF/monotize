@@ -25,23 +25,34 @@ describe('analyze command E2E', () => {
     const repoPath = path.join(tempDir, name);
     await fs.ensureDir(repoPath);
     const pkgJsonPath = path.join(repoPath, 'package.json');
-    await fs.writeJson(
-      pkgJsonPath,
-      {
-        name,
-        version: '1.0.0',
-        dependencies: deps,
-        devDependencies: devDeps,
-        scripts: {
-          build: 'tsc',
-          test: 'vitest',
-        },
+    const pkgData = {
+      name,
+      version: '1.0.0',
+      dependencies: deps,
+      devDependencies: devDeps,
+      scripts: {
+        build: 'tsc',
+        test: 'vitest',
       },
-      { spaces: 2 }
-    );
-    // Verify file exists before proceeding
-    if (!(await fs.pathExists(pkgJsonPath))) {
-      throw new Error(`Failed to create ${pkgJsonPath}`);
+    };
+    await fs.writeJson(pkgJsonPath, pkgData, { spaces: 2 });
+
+    // Verify file exists and content is correct (handles Node 22 race conditions)
+    let verified = false;
+    for (let i = 0; i < 3; i++) {
+      try {
+        const readBack = await fs.readJson(pkgJsonPath);
+        if (readBack.name === name) {
+          verified = true;
+          break;
+        }
+      } catch {
+        // Retry
+      }
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    if (!verified) {
+      throw new Error(`Failed to verify ${pkgJsonPath}`);
     }
 
     await fs.ensureDir(path.join(repoPath, 'src'));
