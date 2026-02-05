@@ -22,16 +22,24 @@ npx monorepo-cli merge owner/repo1 owner/repo2 -o my-monorepo
 
 That's it! Your repositories are now combined into a pnpm workspace monorepo.
 
-## Why Monotize?
+## Important: What This Tool Does (and Doesn't Do)
 
-Consolidating multiple repositories into a monorepo typically involves:
-- Copying files while preserving directory structure
-- Resolving dependency version conflicts
-- Merging configuration files (.gitignore, tsconfig, etc.)
-- Setting up workspace tooling (pnpm, Turborepo, Nx)
-- Combining CI/CD workflows
+### Best For
 
-Monotize automates all of this in a single command, with smart defaults and full customization options.
+- **JavaScript/TypeScript projects** with `package.json` files
+- Combining multiple npm packages into a unified workspace
+- Projects that will use pnpm workspaces
+- Teams migrating from multi-repo to monorepo architecture
+
+### Limitations
+
+| Limitation | Details |
+|------------|---------|
+| **JS/TS only** | Dependency analysis only works with `package.json`. Non-JS projects (Python, Go, Rust) are copied but without conflict detection. |
+| **pnpm required** | Output is always a pnpm workspace. Yarn/npm workspaces are not supported. |
+| **No nested workspaces** | Cannot merge existing monorepos; each source should be a single-package repo. |
+| **File collisions** | Conflicting root files (like `.eslintrc.js`) are renamed with package suffix, not merged. |
+| **History preservation** | Requires `git-filter-repo` for full history; fallback to `git subtree` is limited. |
 
 ## Features
 
@@ -39,11 +47,11 @@ Monotize automates all of this in a single command, with smart defaults and full
 |---------|-------------|
 | **Smart Merging** | Combine multiple repositories with intelligent dependency conflict detection and resolution |
 | **Git History Preservation** | Keep commit history from source repositories using git-filter-repo or git subtree |
-| **Turborepo/Nx Support** | Generate workspace configs with task pipelines, caching, and proper dependency ordering |
+| **Turborepo/Nx Support** | Generate workspace configs with task pipelines based on detected scripts |
 | **CI/CD Merging** | Automatically combine GitHub Actions workflows with namespaced jobs |
 | **Conflict Resolution** | Interactive or automatic resolution with `highest`, `lowest`, or `prompt` strategies |
 | **Analysis Mode** | Preview merge complexity, conflicts, and get recommendations before executing |
-| **Cross-Dependency Detection** | Automatically rewrite inter-package dependencies to workspace protocol |
+| **Cross-Dependency Detection** | Automatically detect when merged packages depend on each other |
 | **Flexible Sources** | Merge from GitHub, GitLab, or local directories in any combination |
 
 ## Installation
@@ -62,11 +70,14 @@ yarn global add monorepo-cli
 npx monorepo-cli <command>
 ```
 
-**Prerequisites:**
-- Node.js 18+
-- pnpm (for workspace management)
-- git (for cloning repositories)
-- git-filter-repo (optional, for history preservation)
+## Requirements
+
+| Requirement | Version | Notes |
+|-------------|---------|-------|
+| Node.js | 18+ | Required |
+| pnpm | 8+ | Required - install with `npm install -g pnpm` |
+| git | 2.0+ | Required for cloning |
+| git-filter-repo | any | Optional, for `--preserve-history` |
 
 ## Commands
 
@@ -101,25 +112,25 @@ monorepo merge <repos...> [options]
 **Examples:**
 
 ```bash
-# Basic merge
+# Basic merge from GitHub
 monorepo merge owner/repo1 owner/repo2
 
-# With Turborepo support
-monorepo merge owner/repo1 owner/repo2 --workspace-tool turbo
+# Merge local directories with Turborepo
+monorepo merge ./app1 ./app2 --workspace-tool turbo -o my-monorepo
 
-# Preserve git history
-monorepo merge owner/repo1 owner/repo2 --preserve-history
-
-# Non-interactive with highest versions
+# Non-interactive with automatic conflict resolution
 monorepo merge owner/repo1 owner/repo2 -y --conflict-strategy highest
 
-# Preview without executing
+# Preview what would happen without making changes
 monorepo merge owner/repo1 owner/repo2 --dry-run
+
+# Skip pnpm install (useful for CI or when you want to review first)
+monorepo merge owner/repo1 owner/repo2 --no-install
 ```
 
 ### `analyze`
 
-Analyze repositories before merging to understand complexity and conflicts.
+Analyze repositories before merging to understand complexity and potential issues.
 
 ```bash
 monorepo analyze <repos...> [options]
@@ -130,47 +141,38 @@ monorepo analyze <repos...> [options]
 | Option | Description |
 |--------|-------------|
 | `-v, --verbose` | Show detailed information |
-| `--json` | Output as JSON |
+| `--json` | Output as JSON (for scripting) |
 
-**Examples:**
+**Example Output:**
 
-```bash
-# Analyze repositories
-monorepo analyze owner/repo1 owner/repo2
-
-# Get JSON output for scripting
-monorepo analyze owner/repo1 owner/repo2 --json
 ```
+Repository Analysis
 
-**Sample Output:**
-```
-📊 Analysis Results
+Packages found:
+  - pkg-a@1.0.0 (from repo-a)
+  - pkg-b@2.0.0 (from repo-b)
 
-Packages (2):
-  • repo1 (1.0.0) - 12 dependencies
-  • repo2 (2.1.0) - 8 dependencies
+Dependency conflicts:
+  3 incompatible, 1 major, 1 minor
 
-⚠️  Dependency Conflicts (3):
-  • typescript: 5.0.0 vs 5.3.0 (minor)
-  • eslint: 8.0.0 vs 9.0.0 (major)
-  • lodash: 4.17.20 vs 4.17.21 (patch)
+  typescript: ^5.3.0 (repo-a), ^5.2.0 (repo-b) [MAJOR]
+  lodash: ^4.17.21 (repo-a), ^4.17.15 (repo-b) [minor]
 
-📁 File Collisions (1):
-  • .eslintrc.js (different content)
+File collisions:
+  .gitignore (in: repo-a, repo-b) -> merge
+  README.md (in: repo-a, repo-b) -> keep-first
 
-🔗 Cross-Dependencies (1):
-  • repo2 depends on repo1
+Complexity score:
+  35/100 (Low)
 
-Complexity Score: 35/100 (Low)
-
-💡 Recommendations:
-  • Use --conflict-strategy highest for safe upgrades
-  • Review eslint major version change
+Recommendations:
+  -> Use --conflict-strategy highest for safe upgrades
+  -> Review major version conflicts before merging
 ```
 
 ### `init`
 
-Initialize a new monorepo workspace.
+Initialize a new empty monorepo workspace.
 
 ```bash
 monorepo init [directory] [options]
@@ -188,32 +190,27 @@ monorepo init [directory] [options]
 **Examples:**
 
 ```bash
-# Initialize in current directory
-monorepo init
-
 # Initialize with Turborepo
 monorepo init my-monorepo --workspace-tool turbo
 
-# Initialize with Nx
-monorepo init my-monorepo --workspace-tool nx
+# Initialize in current directory without git
+monorepo init . --no-git
 ```
 
 ## Repository Sources
 
-Monotize supports multiple ways to specify repositories:
-
 ```bash
-# GitHub shorthand
+# GitHub shorthand (most common)
 monorepo merge owner/repo
 
 # Full GitHub URL
 monorepo merge https://github.com/owner/repo
 
-# GitLab (use gitlab: prefix)
+# GitLab
 monorepo merge gitlab:owner/repo
 
-# Local directories
-monorepo merge ./local-repo ../other-repo
+# Local directories (absolute or relative paths)
+monorepo merge ./local-repo /path/to/other-repo
 
 # Mix and match
 monorepo merge owner/repo ./local-repo https://github.com/other/repo
@@ -221,157 +218,181 @@ monorepo merge owner/repo ./local-repo https://github.com/other/repo
 
 ## Guides
 
-### Preserving Git History
-
-By default, monotize copies files without preserving git history. Use `--preserve-history` to maintain commit history:
-
-```bash
-monorepo merge owner/repo1 owner/repo2 --preserve-history
-```
-
-This works best with [git-filter-repo](https://github.com/newren/git-filter-repo) installed:
-
-```bash
-pip install git-filter-repo
-```
-
-If git-filter-repo is not available, monotize falls back to `git subtree`, which provides basic history preservation.
-
 ### Using Turborepo
 
-Generate a monorepo with [Turborepo](https://turbo.build/) for task orchestration:
+When you use `--workspace-tool turbo`, monotize generates a `turbo.json` that:
+- Only includes tasks that your packages actually have (e.g., won't add `build` task if no package has a build script)
+- Sets up proper task dependencies (`test` depends on `build` only if packages have build scripts)
+- Configures output caching for build artifacts
 
 ```bash
-monorepo merge owner/repo1 owner/repo2 --workspace-tool turbo
-```
+monorepo merge ./pkg-a ./pkg-b --workspace-tool turbo
 
-This creates:
-- `turbo.json` with task pipelines
-- Updated root `package.json` with turbo commands
-- Proper `dependsOn` ordering for build/test/lint
+# After merge, run:
+cd my-monorepo
+pnpm install
+pnpm build  # Runs: turbo run build
+pnpm test   # Runs: turbo run test
+```
 
 ### Using Nx
 
-Generate a monorepo with [Nx](https://nx.dev/) for task orchestration:
-
 ```bash
-monorepo merge owner/repo1 owner/repo2 --workspace-tool nx
-```
+monorepo merge ./pkg-a ./pkg-b --workspace-tool nx
 
-This creates:
-- `nx.json` with target defaults
-- Named inputs for cache invalidation
-- Task dependencies configuration
+# After merge:
+cd my-monorepo
+pnpm install
+pnpm build  # Runs: nx run-many --target=build
+```
 
 ### Handling Dependency Conflicts
 
-When packages have conflicting dependency versions, monotize offers three strategies:
+When packages have different versions of the same dependency:
 
-1. **`highest`**: Use the highest version (safest for most cases)
-2. **`lowest`**: Use the lowest version (better compatibility)
-3. **`prompt`**: Ask for each conflict (default)
+| Strategy | When to Use |
+|----------|-------------|
+| `highest` | Default choice - newer versions usually have bug fixes |
+| `lowest` | When you need maximum compatibility with older code |
+| `prompt` | When you want to review each conflict manually |
 
 ```bash
-# Always use highest versions
-monorepo merge owner/repo1 owner/repo2 --conflict-strategy highest -y
+# Automatic highest version (recommended for most cases)
+monorepo merge owner/repo1 owner/repo2 -y --conflict-strategy highest
 
-# Prevent hoisting to isolate dependencies
+# Keep dependencies isolated in each package (avoids conflicts entirely)
 monorepo merge owner/repo1 owner/repo2 --no-hoist
 ```
 
-### CI/CD Workflow Merging
+**When to use `--no-hoist`:**
+- Packages have truly incompatible peer dependencies
+- You're merging packages that were never designed to work together
+- You encounter runtime errors after merging with hoisting
 
-Monotize can combine GitHub Actions workflows from merged repositories:
+### Preserving Git History
+
+By default, files are copied without git history. To preserve history:
+
+```bash
+# First, install git-filter-repo
+pip install git-filter-repo
+
+# Then merge with history preservation
+monorepo merge owner/repo1 owner/repo2 --preserve-history
+```
+
+**Caveats:**
+- Significantly slower than regular merge
+- Requires `git-filter-repo` for best results
+- Falls back to `git subtree` if git-filter-repo is not available
+- Commit hashes will change (paths are rewritten to `packages/<name>/`)
+
+### CI/CD Workflow Merging
 
 ```bash
 # Combine all workflows (default)
 monorepo merge owner/repo1 owner/repo2 --workflow-strategy combine
 
-# Keep only first repository's workflows
+# Keep only first repo's workflows
 monorepo merge owner/repo1 owner/repo2 --workflow-strategy keep-first
 
-# Skip workflow merging
+# Skip workflow merging entirely
 monorepo merge owner/repo1 owner/repo2 --workflow-strategy skip
 ```
 
-Combined workflows have jobs prefixed with the source package name to avoid conflicts.
+**How workflow combining works:**
+- Triggers are merged (all `on:` events from all workflows)
+- Jobs are prefixed with package name (`repo1-build`, `repo2-test`)
+- Duplicate checkout steps are deduplicated
 
-## Configuration
+**Recommendation:** Use `--workflow-strategy skip` for complex CI setups and configure workflows manually after merge.
 
-### Output Structure
+## Output Structure
 
 ```
 my-monorepo/
 ├── packages/
 │   ├── repo1/
 │   │   ├── src/
-│   │   └── package.json
+│   │   ├── package.json      # Original package.json (may be modified)
+│   │   └── ...
 │   └── repo2/
 │       ├── src/
-│       └── package.json
+│       ├── package.json
+│       └── ...
 ├── .github/
 │   └── workflows/
-│       └── ci.yml          # Merged workflows
-├── package.json            # Root workspace config
-├── pnpm-workspace.yaml
-├── turbo.json              # If --workspace-tool turbo
-├── .gitignore
-└── README.md
+│       └── ci.yml            # Merged workflows (if applicable)
+├── package.json              # Root workspace config
+├── pnpm-workspace.yaml       # pnpm workspace definition
+├── turbo.json                # If --workspace-tool turbo
+├── nx.json                   # If --workspace-tool nx
+├── .gitignore                # Merged from all repos
+└── README.md                 # Generated overview
 ```
 
 ### Root package.json
 
 The generated root `package.json` includes:
-- Aggregated scripts (`build`, `test`, `lint`)
+- `packageManager` field with your pnpm version (required by Turbo)
+- Aggregated scripts (`build`, `test`, `lint`) using workspace tool or pnpm
 - Per-package scripts (`repo1:build`, `repo2:test`)
-- Resolved dependencies (unless `--no-hoist`)
-- Workspace tool dependencies
+- Hoisted dependencies (unless `--no-hoist`)
 
 ## Troubleshooting
 
 ### "pnpm not found"
 
-Monotize requires pnpm for workspace management:
-
 ```bash
 npm install -g pnpm
 ```
 
-### Dependency conflicts
+### "Could not find [task] in root turbo.json"
 
-For packages with incompatible dependency versions:
+This happens when Turbo expects a task that packages don't have. Monotize now only generates tasks for scripts that exist, but if you see this:
 
-```bash
-# Option 1: Use --no-hoist to isolate dependencies
-monorepo merge owner/repo1 owner/repo2 --no-hoist
+1. Check that your packages have the expected scripts in their `package.json`
+2. Or manually edit `turbo.json` to remove the missing task
 
-# Option 2: Pin versions for reproducibility
-monorepo merge owner/repo1 owner/repo2 --pin-versions
-```
-
-### Git history not preserved
-
-Ensure git-filter-repo is installed for best results:
+### Clone failures for private repos
 
 ```bash
-pip install git-filter-repo
-```
-
-### Clone failures
-
-For private repositories, ensure your git credentials are configured:
-
-```bash
-# Using SSH
+# Option 1: Use SSH
 git config --global url."git@github.com:".insteadOf "https://github.com/"
 
-# Or use a personal access token
+# Option 2: Use personal access token
+export GITHUB_TOKEN=your_token
 git config --global url."https://${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
 ```
 
-## Contributing
+### Dependency conflicts causing runtime errors
 
-Contributions are welcome! Please read our contributing guidelines before submitting PRs.
+```bash
+# Try isolating dependencies
+monorepo merge owner/repo1 owner/repo2 --no-hoist
+```
+
+### Large repos taking too long
+
+```bash
+# Clone locally first, then merge from local paths
+git clone --depth 1 https://github.com/owner/large-repo ./large-repo
+monorepo merge ./large-repo ./other-repo
+```
+
+### Non-JS projects show no dependency conflicts
+
+This is expected. Monotize only analyzes `package.json` files. Python, Go, Rust, and other projects will be copied but without dependency analysis.
+
+## Known Limitations
+
+1. **No monorepo-to-monorepo merging**: Each source repo should be a single package
+2. **No Yarn/npm workspaces**: Output is always pnpm
+3. **File collision handling**: Root-level config files with conflicts are renamed, not merged
+4. **Workflow merging**: Complex CI/CD setups may need manual adjustment
+5. **Peer dependencies**: May require `--no-hoist` for packages with conflicting peers
+
+## Contributing
 
 ```bash
 # Clone the repository
@@ -391,30 +412,12 @@ pnpm build
 ### Running Tests
 
 ```bash
-# All tests
-pnpm test
-
-# Unit tests only
-pnpm test:unit
-
-# Integration tests
-pnpm test:integration
-
-# E2E tests
-pnpm test:e2e
-
-# With coverage
-pnpm test:coverage
+pnpm test              # All tests
+pnpm test:unit         # Unit tests only
+pnpm test:integration  # Integration tests
+pnpm test:e2e          # End-to-end tests
+pnpm test:coverage     # With coverage report
 ```
-
-## Requirements
-
-| Requirement | Version | Notes |
-|-------------|---------|-------|
-| Node.js | 18+ | Required |
-| pnpm | 8+ | Required for workspace management |
-| git | 2.0+ | Required for cloning |
-| git-filter-repo | any | Optional, for `--preserve-history` |
 
 ## License
 
