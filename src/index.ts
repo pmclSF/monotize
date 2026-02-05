@@ -24,6 +24,8 @@ program
   )
   .option('-v, --verbose', 'Verbose output')
   .option('--no-install', 'Skip running pnpm install')
+  .option('--no-hoist', 'Keep dependencies in each package (prevents type conflicts)')
+  .option('--pin-versions', 'Pin dependency versions by removing ^ and ~ ranges')
   .action(mergeCommand);
 
 program.parse();

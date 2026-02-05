@@ -53,6 +53,8 @@ interface CLIOptions {
   conflictStrategy: string;
   verbose?: boolean;
   install: boolean;
+  hoist?: boolean; // Commander uses --no-hoist -> hoist: false
+  pinVersions?: boolean;
 }
 
 /**
@@ -132,6 +134,8 @@ export async function mergeCommand(repos: string[], options: CLIOptions): Promis
     conflictStrategy: options.conflictStrategy as ConflictStrategy,
     verbose: options.verbose,
     install: options.install,
+    noHoist: options.hoist === false, // Commander: --no-hoist sets hoist to false
+    pinVersions: options.pinVersions,
   };
 
   // Robust cleanup function - doesn't throw on failure
@@ -273,13 +277,58 @@ export async function mergeCommand(repos: string[], options: CLIOptions): Promis
       name: r.name,
     }));
 
+    // Step 10b: If --pin-versions, update each package.json to use exact versions
+    if (mergeOptions.pinVersions) {
+      logger.debug('Pinning dependency versions (removing ^ and ~ ranges)');
+      for (const repo of movedRepoPaths) {
+        const pkgJsonPath = path.join(repo.path, 'package.json');
+        if (await pathExists(pkgJsonPath)) {
+          try {
+            const pkgJson = await readJson<Record<string, unknown>>(pkgJsonPath);
+            let modified = false;
+
+            const pinDeps = (deps: Record<string, string> | undefined): Record<string, string> | undefined => {
+              if (!deps) return deps;
+              const pinned: Record<string, string> = {};
+              for (const [name, version] of Object.entries(deps)) {
+                // Remove ^ and ~ prefixes to pin to exact version
+                if (version.startsWith('^') || version.startsWith('~')) {
+                  pinned[name] = version.slice(1);
+                  modified = true;
+                } else {
+                  pinned[name] = version;
+                }
+              }
+              return pinned;
+            };
+
+            pkgJson.dependencies = pinDeps(pkgJson.dependencies as Record<string, string>);
+            pkgJson.devDependencies = pinDeps(pkgJson.devDependencies as Record<string, string>);
+            pkgJson.peerDependencies = pinDeps(pkgJson.peerDependencies as Record<string, string>);
+
+            if (modified) {
+              await writeJson(pkgJsonPath, pkgJson, { spaces: 2 });
+              logger.debug(`Pinned versions in ${repo.name}/package.json`);
+            }
+          } catch (error) {
+            logger.warn(`Failed to pin versions in ${repo.name}: ${error instanceof Error ? error.message : String(error)}`);
+          }
+        }
+      }
+    }
+
     // Step 11: Generate root package.json with workspaces
+    // If --no-hoist, don't put dependencies in root (each package keeps its own)
     const workspaceConfig = generateWorkspaceConfig(depAnalysis.packages, {
       rootName: path.basename(mergeOptions.output),
       packagesDir: mergeOptions.packagesDir,
-      dependencies: resolvedDeps.dependencies,
-      devDependencies: resolvedDeps.devDependencies,
+      dependencies: mergeOptions.noHoist ? {} : resolvedDeps.dependencies,
+      devDependencies: mergeOptions.noHoist ? {} : resolvedDeps.devDependencies,
     });
+
+    if (mergeOptions.noHoist) {
+      logger.debug('Using --no-hoist: dependencies stay in each package');
+    }
 
     await writeJson(
       path.join(mergeOptions.output, 'package.json'),
@@ -295,6 +344,20 @@ export async function mergeCommand(repos: string[], options: CLIOptions): Promis
       pnpmWorkspaceContent
     );
     logger.debug('Created pnpm-workspace.yaml');
+
+    // Step 12b: If --no-hoist, create .npmrc to prevent hoisting
+    if (mergeOptions.noHoist) {
+      const npmrcContent = `# Prevent dependency hoisting - each package manages its own dependencies
+# This helps avoid type conflicts between packages with different version requirements
+shamefully-hoist=false
+hoist=false
+
+# Use lowest satisfying versions to avoid breaking changes in newer releases
+resolution-mode=lowest
+`;
+      await writeFile(path.join(mergeOptions.output, '.npmrc'), npmrcContent);
+      logger.debug('Created .npmrc with no-hoist configuration');
+    }
 
     // Step 13: Handle file collisions
     for (const collision of collisions) {
