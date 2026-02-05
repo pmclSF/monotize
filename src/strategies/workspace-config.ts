@@ -19,7 +19,7 @@ export interface WorkspaceConfigOptions {
  */
 function aggregateScripts(
   packages: PackageInfo[],
-  packagesDir: string
+  _packagesDir: string
 ): Record<string, string> {
   const scripts: Record<string, string> = {};
 
@@ -35,7 +35,7 @@ function aggregateScripts(
 
   // Add per-package scripts with prefixes
   for (const pkg of packages) {
-    for (const [scriptName, scriptCmd] of Object.entries(pkg.scripts)) {
+    for (const scriptName of Object.keys(pkg.scripts)) {
       const prefixedName = `${pkg.repoName}:${scriptName}`;
       scripts[prefixedName] = `pnpm --filter ${pkg.repoName} ${scriptName}`;
     }

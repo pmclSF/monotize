@@ -1,6 +1,6 @@
 import path from 'node:path';
 import type { FileCollision, FileCollisionStrategy } from '../types/index.js';
-import { readFile, writeFile, pathExists, copyDir } from '../utils/fs.js';
+import { readFile, writeFile, pathExists } from '../utils/fs.js';
 
 /**
  * Merge multiple .gitignore files into one

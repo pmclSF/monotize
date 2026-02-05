@@ -1,5 +1,5 @@
 import path from 'node:path';
-import simpleGit, { GitError } from 'simple-git';
+import simpleGit from 'simple-git';
 import type { RepoSource, Logger } from '../types/index.js';
 import { copyDir, ensureDir, pathExists, removeDir } from '../utils/fs.js';
 

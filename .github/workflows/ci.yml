@@ -1,0 +1,191 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  safety-check:
+    name: Safety Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check for dangerous patterns
+        run: |
+          echo "Checking for potentially dangerous patterns..."
+
+          # Check for eval() usage (potential code injection)
+          if grep -r "eval(" --include="*.ts" --include="*.js" src/; then
+            echo "::warning::Found eval() usage - review for security"
+          fi
+
+          # Check for shell command injection risks
+          if grep -rE "exec(Sync)?\s*\(\s*[^'\"]\s*\+" --include="*.ts" --include="*.js" src/; then
+            echo "::warning::Found potential command injection - review string concatenation in exec calls"
+          fi
+
+          # Check for hardcoded secrets patterns
+          if grep -rE "(password|secret|api_key|apikey|token)\s*[:=]\s*['\"][^'\"]+['\"]" --include="*.ts" --include="*.js" -i src/; then
+            echo "::error::Found potential hardcoded secrets"
+            exit 1
+          fi
+
+          echo "Safety check completed"
+
+      - name: Check for sensitive files
+        run: |
+          # Ensure no sensitive files are committed
+          SENSITIVE_FILES=".env .env.local .env.*.local *.pem *.key credentials.json"
+          for pattern in $SENSITIVE_FILES; do
+            if ls $pattern 2>/dev/null; then
+              echo "::error::Sensitive file found: $pattern"
+              exit 1
+            fi
+          done
+          echo "No sensitive files found"
+
+  test:
+    name: Test (Node ${{ matrix.node-version }})
+    runs-on: ubuntu-latest
+    needs: safety-check
+    strategy:
+      matrix:
+        node-version: [18, 20, 22]
+      fail-fast: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Type check
+        run: pnpm typecheck
+
+      - name: Run tests
+        run: pnpm test
+
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Run tests with coverage
+        run: pnpm test:coverage
+
+      - name: Upload coverage reports
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage/coverage-final.json
+          fail_ci_if_error: false
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  e2e:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Run E2E tests
+        run: pnpm test:e2e
+
+  integration:
+    name: Real Repo Integration
+    runs-on: ubuntu-latest
+    needs: [test, e2e]
+    # Only run on main branch or when explicitly requested
+    if: github.ref == 'refs/heads/main' || contains(github.event.pull_request.labels.*.name, 'test-integration')
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Test with real GitHub repos
+        run: |
+          # Test merging real public repos
+          node ./bin/monorepo.js merge jonschlinkert/is-number micromatch/is-glob -o /tmp/test-monorepo -y
+
+          # Verify the output
+          cd /tmp/test-monorepo
+          pnpm install
+          pnpm test
+        timeout-minutes: 10
