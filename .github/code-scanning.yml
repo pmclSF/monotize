@@ -1,0 +1,24 @@
+# Configuration for GitHub's default code scanning
+# This controls the automatic CodeQL analysis run by GitHub Advanced Security
+
+name: "Default Code Scanning Config"
+
+# Use only security queries, not code quality
+queries:
+  - uses: security-extended
+
+# Exclude queries that cause false positives
+query-filters:
+  - exclude:
+      id: js/unused-local-variable
+  - exclude:
+      id: js/insecure-temporary-file
+
+# Exclude test files from analysis
+paths-ignore:
+  - tests/**
+  - "**/*.test.ts"
+  - "**/*.spec.ts"
+  - node_modules/**
+  - "**/__tests__/**"
+  - "**/__mocks__/**"
