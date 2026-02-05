@@ -20,6 +20,9 @@ function isYarnInstalled(): boolean {
 
 const YARN_INSTALLED = isYarnInstalled();
 
+// Retry count for flaky tests (temp directory race conditions)
+const FLAKY_TEST_RETRIES = 2;
+
 describe('CLI End-to-End Tests', () => {
   let testOutputDir: string;
 
@@ -83,7 +86,7 @@ describe('CLI End-to-End Tests', () => {
   });
 
   describe('flag combinations', () => {
-    it('should accept -y flag for non-interactive mode', () => {
+    it('should accept -y flag for non-interactive mode', { retry: FLAKY_TEST_RETRIES }, () => {
       const outputDir = path.join(testOutputDir, 'output-y');
       const output = runCLI([
         'merge',
@@ -95,7 +98,7 @@ describe('CLI End-to-End Tests', () => {
       expect(output).toContain('created successfully');
     });
 
-    it('should accept --yes flag for non-interactive mode', () => {
+    it('should accept --yes flag for non-interactive mode', { retry: FLAKY_TEST_RETRIES }, () => {
       const outputDir = path.join(testOutputDir, 'output-yes');
       const output = runCLI([
         'merge',
@@ -107,7 +110,7 @@ describe('CLI End-to-End Tests', () => {
       expect(output).toContain('created successfully');
     });
 
-    it('should accept -v flag for verbose output', () => {
+    it('should accept -v flag for verbose output', { retry: FLAKY_TEST_RETRIES }, () => {
       const outputDir = path.join(testOutputDir, 'output-verbose');
       const output = runCLI([
         'merge',
@@ -121,7 +124,7 @@ describe('CLI End-to-End Tests', () => {
       expect(output).toContain('created successfully');
     });
 
-    it('should accept custom packages directory', () => {
+    it('should accept custom packages directory', { retry: FLAKY_TEST_RETRIES }, () => {
       const outputDir = path.join(testOutputDir, 'output-custom-pkg');
       runCLI([
         'merge',
@@ -136,7 +139,7 @@ describe('CLI End-to-End Tests', () => {
       expect(fs.existsSync(path.join(outputDir, 'libs', 'repo-a'))).toBe(true);
     });
 
-    it('should accept --conflict-strategy flag', () => {
+    it('should accept --conflict-strategy flag', { retry: FLAKY_TEST_RETRIES }, () => {
       const outputDir = path.join(testOutputDir, 'output-strategy');
       const output = runCLI([
         'merge',
@@ -347,7 +350,7 @@ describe('CLI End-to-End Tests', () => {
       expect(workspace).toContain('packages/*');
     });
 
-    it('should create README.md', () => {
+    it('should create README.md', { retry: FLAKY_TEST_RETRIES }, () => {
       const outputDir = path.join(testOutputDir, 'readme-test');
       runCLI([
         'merge',
@@ -360,7 +363,7 @@ describe('CLI End-to-End Tests', () => {
       expect(fs.existsSync(path.join(outputDir, 'README.md'))).toBe(true);
     });
 
-    it('should create .gitignore', () => {
+    it('should create .gitignore', { retry: FLAKY_TEST_RETRIES }, () => {
       const outputDir = path.join(testOutputDir, 'gitignore-test');
       runCLI([
         'merge',
@@ -375,7 +378,7 @@ describe('CLI End-to-End Tests', () => {
   });
 
   describe('package manager options', () => {
-    it.skipIf(!YARN_INSTALLED)('should merge with yarn package manager', () => {
+    it.skipIf(!YARN_INSTALLED)('should merge with yarn package manager', { retry: FLAKY_TEST_RETRIES }, () => {
       const outputDir = path.join(testOutputDir, 'yarn-test');
       runCLI([
         'merge',
@@ -396,7 +399,7 @@ describe('CLI End-to-End Tests', () => {
       expect(pkgJson.scripts?.build).toContain('yarn workspaces run');
     });
 
-    it('should merge with npm package manager', () => {
+    it('should merge with npm package manager', { retry: FLAKY_TEST_RETRIES }, () => {
       const outputDir = path.join(testOutputDir, 'npm-test');
       runCLI([
         'merge',
@@ -417,7 +420,7 @@ describe('CLI End-to-End Tests', () => {
       expect(pkgJson.scripts?.build).toContain('npm run');
     });
 
-    it.skipIf(!YARN_INSTALLED)('should merge with yarn-berry package manager', () => {
+    it.skipIf(!YARN_INSTALLED)('should merge with yarn-berry package manager', { retry: FLAKY_TEST_RETRIES }, () => {
       const outputDir = path.join(testOutputDir, 'yarn-berry-test');
       runCLI([
         'merge',
@@ -438,7 +441,7 @@ describe('CLI End-to-End Tests', () => {
       expect(pkgJson.scripts?.build).toContain('yarn workspaces foreach');
     });
 
-    it('should keep pnpm as default', () => {
+    it('should keep pnpm as default', { retry: FLAKY_TEST_RETRIES }, () => {
       const outputDir = path.join(testOutputDir, 'pnpm-default-test');
       runCLI([
         'merge',

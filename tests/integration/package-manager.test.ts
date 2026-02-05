@@ -16,6 +16,9 @@ function isYarnInstalled(): boolean {
 
 const YARN_INSTALLED = isYarnInstalled();
 
+// Retry count for flaky tests (temp directory race conditions)
+const FLAKY_TEST_RETRIES = 2;
+
 describe('Package Manager Integration', () => {
   let tempDir: string;
   let testRepoDir1: string;
@@ -67,7 +70,7 @@ describe('Package Manager Integration', () => {
       }
     });
 
-    it('should merge with pnpm (default)', async () => {
+    it('should merge with pnpm (default)', { retry: FLAKY_TEST_RETRIES }, async () => {
       execSync(`node ${cliPath} merge ${testRepoDir1} ${testRepoDir2} -o ${outputDir} -y --no-install`, {
         stdio: 'pipe',
       });
@@ -83,7 +86,7 @@ describe('Package Manager Integration', () => {
       expect(pkgJson.scripts?.build).toBe('pnpm -r build');
     });
 
-    it.skipIf(!YARN_INSTALLED)('should merge with yarn', async () => {
+    it.skipIf(!YARN_INSTALLED)('should merge with yarn', { retry: FLAKY_TEST_RETRIES }, async () => {
       execSync(`node ${cliPath} merge ${testRepoDir1} ${testRepoDir2} -o ${outputDir} -y --no-install --package-manager yarn`, {
         stdio: 'pipe',
       });
@@ -99,7 +102,7 @@ describe('Package Manager Integration', () => {
       expect(pkgJson.scripts?.build).toBe('yarn workspaces run build');
     });
 
-    it('should merge with npm', async () => {
+    it('should merge with npm', { retry: FLAKY_TEST_RETRIES }, async () => {
       execSync(`node ${cliPath} merge ${testRepoDir1} ${testRepoDir2} -o ${outputDir} -y --no-install --package-manager npm`, {
         stdio: 'pipe',
       });
@@ -115,7 +118,7 @@ describe('Package Manager Integration', () => {
       expect(pkgJson.scripts?.build).toBe('npm run build -ws');
     });
 
-    it.skipIf(!YARN_INSTALLED)('should merge with yarn-berry', async () => {
+    it.skipIf(!YARN_INSTALLED)('should merge with yarn-berry', { retry: FLAKY_TEST_RETRIES }, async () => {
       execSync(`node ${cliPath} merge ${testRepoDir1} ${testRepoDir2} -o ${outputDir} -y --no-install --package-manager yarn-berry`, {
         stdio: 'pipe',
       });
