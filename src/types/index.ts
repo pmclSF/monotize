@@ -173,3 +173,149 @@ export interface Logger {
   debug: (message: string) => void;
   log: (message: string) => void;
 }
+
+// ============================================================================
+// Phase 2: Advanced Monorepo Features
+// ============================================================================
+
+/**
+ * Workspace orchestration tool
+ */
+export type WorkspaceTool = 'turbo' | 'nx' | 'none';
+
+/**
+ * Options for git history preservation
+ */
+export interface HistoryPreserveOptions {
+  /** Target subdirectory for the repository */
+  targetDir: string;
+  /** Whether to rewrite paths in commit history */
+  rewritePaths: boolean;
+  /** Optional prefix for commit messages */
+  commitPrefix?: string;
+}
+
+/**
+ * Strategy for merging CI/CD workflows
+ */
+export type WorkflowMergeStrategy = 'combine' | 'keep-first' | 'keep-last' | 'skip';
+
+/**
+ * Options for workflow merging
+ */
+export interface WorkflowMergeOptions {
+  /** Strategy for merging workflows */
+  strategy: WorkflowMergeStrategy;
+  /** Output directory for merged workflows */
+  outputDir: string;
+}
+
+/**
+ * A cross-dependency between packages in the monorepo
+ */
+export interface CrossDependency {
+  /** The package that has the dependency */
+  fromPackage: string;
+  /** The package being depended on */
+  toPackage: string;
+  /** Current version specifier */
+  currentVersion: string;
+  /** Type of dependency */
+  dependencyType: 'dependencies' | 'devDependencies' | 'peerDependencies';
+}
+
+/**
+ * Options for the analyze command
+ */
+export interface AnalyzeOptions {
+  /** Repository sources to analyze */
+  repos: string[];
+  /** Enable verbose output */
+  verbose?: boolean;
+  /** Output as JSON */
+  json?: boolean;
+}
+
+/**
+ * Result of the analyze command
+ */
+export interface AnalyzeResult {
+  /** Packages found in the repositories */
+  packages: PackageInfo[];
+  /** Dependency conflicts detected */
+  conflicts: DependencyConflict[];
+  /** File collisions detected */
+  collisions: FileCollision[];
+  /** Cross-dependencies between packages */
+  crossDependencies: CrossDependency[];
+  /** Complexity score (0-100) */
+  complexityScore: number;
+  /** Recommendations for the merge */
+  recommendations: string[];
+}
+
+/**
+ * Options for the init command
+ */
+export interface InitOptions {
+  /** Name for the monorepo */
+  name?: string;
+  /** Subdirectory for packages */
+  packagesDir?: string;
+  /** Workspace tool to configure */
+  workspaceTool?: WorkspaceTool;
+  /** Initialize git repository */
+  gitInit?: boolean;
+}
+
+/**
+ * Extended merge options with Phase 2 features
+ */
+export interface MergeOptionsExtended extends MergeOptions {
+  /** Preserve git commit history */
+  preserveHistory?: boolean;
+  /** Workspace tool to generate config for */
+  workspaceTool?: WorkspaceTool;
+  /** Strategy for merging CI/CD workflows */
+  workflowStrategy?: WorkflowMergeStrategy;
+}
+
+/**
+ * Turbo.json configuration
+ */
+export interface TurboConfig {
+  $schema: string;
+  tasks: Record<string, TurboTask>;
+}
+
+/**
+ * A task in turbo.json
+ */
+export interface TurboTask {
+  dependsOn?: string[];
+  outputs?: string[];
+  cache?: boolean;
+  persistent?: boolean;
+  env?: string[];
+  inputs?: string[];
+}
+
+/**
+ * Nx configuration (nx.json)
+ */
+export interface NxConfig {
+  $schema: string;
+  targetDefaults: Record<string, NxTargetDefault>;
+  namedInputs?: Record<string, string[]>;
+  defaultBase?: string;
+}
+
+/**
+ * Default target configuration in Nx
+ */
+export interface NxTargetDefault {
+  dependsOn?: string[];
+  inputs?: string[];
+  outputs?: string[];
+  cache?: boolean;
+}

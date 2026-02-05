@@ -1,8 +1,8 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import path from 'node:path';
 import fs from 'fs-extra';
 import os from 'node:os';
-import { execSync } from 'node:child_process';
+import crypto from 'node:crypto';
 import {
   createTempFixture,
   cleanupFixtures,
@@ -13,7 +13,7 @@ describe('Error Handling Integration', () => {
   let testDir: string;
 
   beforeEach(async () => {
-    testDir = path.join(os.tmpdir(), `error-test-${Date.now()}`);
+    testDir = path.join(os.tmpdir(), `error-test-${crypto.randomBytes(8).toString('hex')}`);
     await fs.ensureDir(testDir);
   });
 

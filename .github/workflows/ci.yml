@@ -189,3 +189,150 @@ jobs:
           pnpm install
           pnpm test
         timeout-minutes: 10
+
+  test-workspace-tools:
+    name: Workspace Tools Generation
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Test Turborepo generation
+        run: |
+          node ./bin/monorepo.js init /tmp/turbo-test --workspace-tool turbo
+          cd /tmp/turbo-test
+          test -f turbo.json || exit 1
+          test -f pnpm-workspace.yaml || exit 1
+          cat turbo.json
+          echo "Turbo config generated successfully"
+
+      - name: Test Nx generation
+        run: |
+          node ./bin/monorepo.js init /tmp/nx-test --workspace-tool nx
+          cd /tmp/nx-test
+          test -f nx.json || exit 1
+          test -f pnpm-workspace.yaml || exit 1
+          cat nx.json
+          echo "Nx config generated successfully"
+
+  test-analyze-command:
+    name: Analyze Command
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Test analyze command with local fixtures
+        run: |
+          # Analyze local test fixtures
+          node ./bin/monorepo.js analyze tests/fixtures/repo-a tests/fixtures/repo-b -v
+
+      - name: Test analyze JSON output
+        run: |
+          OUTPUT=$(node ./bin/monorepo.js analyze tests/fixtures/repo-a tests/fixtures/repo-b --json)
+          echo "$OUTPUT" | jq .
+          echo "$OUTPUT" | jq -e '.packages | length > 0' || exit 1
+          echo "Analyze JSON output is valid"
+
+  integration-with-history:
+    name: History Preservation
+    runs-on: ubuntu-latest
+    needs: [test, e2e]
+    if: github.ref == 'refs/heads/main' || contains(github.event.pull_request.labels.*.name, 'test-integration')
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Install git-filter-repo
+        run: pip install git-filter-repo
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Test merge with history preservation
+        run: |
+          # Create test repos with history
+          mkdir -p /tmp/repo-a
+          cd /tmp/repo-a
+          git init
+          echo '{"name":"pkg-a","version":"1.0.0"}' > package.json
+          git add .
+          git commit -m "Initial commit for pkg-a"
+          echo "console.log('hello')" > index.js
+          git add .
+          git commit -m "Add index.js"
+
+          mkdir -p /tmp/repo-b
+          cd /tmp/repo-b
+          git init
+          echo '{"name":"pkg-b","version":"1.0.0"}' > package.json
+          git add .
+          git commit -m "Initial commit for pkg-b"
+
+          # Merge with history preservation
+          cd $GITHUB_WORKSPACE
+          node ./bin/monorepo.js merge /tmp/repo-a /tmp/repo-b -o /tmp/test-history --preserve-history -y --no-install
+
+          # Verify history was preserved
+          cd /tmp/test-history
+          git log --oneline
+          COMMIT_COUNT=$(git rev-list --count HEAD)
+          if [ "$COMMIT_COUNT" -lt 3 ]; then
+            echo "Expected at least 3 commits, got $COMMIT_COUNT"
+            exit 1
+          fi
+          echo "History preserved successfully with $COMMIT_COUNT commits"
+        timeout-minutes: 5

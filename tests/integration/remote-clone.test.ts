@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import path from 'node:path';
 import fs from 'fs-extra';
 import os from 'node:os';
+import crypto from 'node:crypto';
 import type { RepoSource } from '../../src/types/index.js';
 import { createMockLogger } from '../helpers/mocks.js';
 
@@ -27,7 +28,7 @@ describe('Remote Cloning Integration', () => {
     (simpleGit as unknown as ReturnType<typeof vi.fn>).mockReturnValue(mockGit);
 
     // Create test directory
-    testDir = path.join(os.tmpdir(), `clone-test-${Date.now()}`);
+    testDir = path.join(os.tmpdir(), `clone-test-${crypto.randomBytes(8).toString('hex')}`);
     await fs.ensureDir(testDir);
   });
 

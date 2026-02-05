@@ -1,0 +1,16 @@
+{
+  "name": "repo-with-workflows",
+  "version": "1.0.0",
+  "description": "Test fixture with GitHub workflows",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest"
+  },
+  "dependencies": {
+    "lodash": "^4.17.21"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "vitest": "^2.0.0"
+  }
+}

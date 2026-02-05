@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import path from 'node:path';
 import fs from 'fs-extra';
 import os from 'node:os';
+import crypto from 'node:crypto';
 import {
   mergeGitignores,
   mergeIgnoreFiles,
@@ -14,7 +15,7 @@ describe('Merge Files Strategies', () => {
   let testDir: string;
 
   beforeEach(async () => {
-    testDir = path.join(os.tmpdir(), `merge-files-test-${Date.now()}`);
+    testDir = path.join(os.tmpdir(), `merge-files-test-${crypto.randomBytes(8).toString('hex')}`);
     await fs.ensureDir(testDir);
   });
 

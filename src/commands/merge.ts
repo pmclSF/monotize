@@ -5,6 +5,8 @@ import type {
   MergeOptions,
   ConflictStrategy,
   FileCollisionStrategy,
+  WorkspaceTool,
+  WorkflowMergeStrategy,
 } from '../types/index.js';
 import { createLogger, formatHeader, formatList } from '../utils/logger.js';
 import {
@@ -36,6 +38,13 @@ import {
   generatePnpmWorkspaceYaml,
 } from '../strategies/workspace-config.js';
 import {
+  generateWorkspaceToolConfig,
+  getWorkspaceToolDependencies,
+  updateScriptsForWorkspaceTool,
+} from '../strategies/workspace-tools.js';
+import { preserveHistory, checkGitFilterRepo } from '../strategies/history-preserve.js';
+import { mergeWorkflows } from '../strategies/workflow-merge.js';
+import {
   resolveDependencyConflicts,
   formatConflict,
   getConflictSummary,
@@ -54,6 +63,10 @@ interface CLIOptions {
   install: boolean;
   hoist?: boolean; // Commander uses --no-hoist -> hoist: false
   pinVersions?: boolean;
+  // Phase 2 options
+  preserveHistory?: boolean;
+  workspaceTool?: string;
+  workflowStrategy?: string;
 }
 
 /**
@@ -124,8 +137,12 @@ export async function mergeCommand(repos: string[], options: CLIOptions): Promis
   const logger = createLogger(options.verbose);
   let tempDir: string | null = null;
 
-  // Convert CLI options to MergeOptions
-  const mergeOptions: MergeOptions = {
+  // Convert CLI options to MergeOptions (extended with Phase 2 options)
+  const mergeOptions: MergeOptions & {
+    preserveHistory?: boolean;
+    workspaceTool?: WorkspaceTool;
+    workflowStrategy?: WorkflowMergeStrategy;
+  } = {
     output: path.resolve(options.output),
     packagesDir: options.packagesDir,
     dryRun: options.dryRun,
@@ -135,6 +152,10 @@ export async function mergeCommand(repos: string[], options: CLIOptions): Promis
     install: options.install,
     noHoist: options.hoist === false, // Commander: --no-hoist sets hoist to false
     pinVersions: options.pinVersions,
+    // Phase 2 options
+    preserveHistory: options.preserveHistory,
+    workspaceTool: (options.workspaceTool as WorkspaceTool) || 'none',
+    workflowStrategy: (options.workflowStrategy as WorkflowMergeStrategy) || 'combine',
   };
 
   // Robust cleanup function - doesn't throw on failure
@@ -157,6 +178,15 @@ export async function mergeCommand(repos: string[], options: CLIOptions): Promis
   });
 
   try {
+    // Step 0: Check prerequisites for history preservation
+    if (mergeOptions.preserveHistory) {
+      const hasFilterRepo = await checkGitFilterRepo();
+      if (!hasFilterRepo) {
+        logger.warn('git filter-repo not found. Will use git subtree for history preservation.');
+        logger.info('For better results, install git filter-repo: pip install git-filter-repo');
+      }
+    }
+
     // Step 1: Validate repo sources
     logger.info('Validating repository sources...');
     const validation = await validateRepoSources(repos);
@@ -263,11 +293,41 @@ export async function mergeCommand(repos: string[], options: CLIOptions): Promis
     const packagesPath = path.join(mergeOptions.output, mergeOptions.packagesDir);
     await ensureDir(packagesPath);
 
-    // Step 10: Move repos to packages/<name>/
-    for (const repo of repoPaths) {
-      const targetPath = path.join(packagesPath, repo.name);
-      await move(repo.path, targetPath);
-      logger.debug(`Moved ${repo.name} to ${targetPath}`);
+    // Step 10: Handle history preservation or move repos to packages/<name>/
+    if (mergeOptions.preserveHistory) {
+      logger.info('Preserving git history...');
+      // Initialize git in output directory
+      try {
+        execSync('git init', {
+          cwd: mergeOptions.output,
+          stdio: 'pipe',
+        });
+        logger.debug('Initialized git repository in output directory');
+      } catch {
+        // Git may already be initialized
+      }
+
+      for (const repo of repoPaths) {
+        const targetPath = path.join(packagesPath, repo.name);
+        try {
+          await preserveHistory(repo.path, mergeOptions.output, {
+            targetDir: path.join(mergeOptions.packagesDir, repo.name),
+            rewritePaths: true,
+            commitPrefix: `[${repo.name}] `,
+          });
+          logger.debug(`Preserved history for ${repo.name}`);
+        } catch (error) {
+          logger.warn(`Failed to preserve history for ${repo.name}: ${error instanceof Error ? error.message : String(error)}`);
+          // Fall back to regular move
+          await move(repo.path, targetPath);
+        }
+      }
+    } else {
+      for (const repo of repoPaths) {
+        const targetPath = path.join(packagesPath, repo.name);
+        await move(repo.path, targetPath);
+        logger.debug(`Moved ${repo.name} to ${targetPath}`);
+      }
     }
 
     // Update repoPaths to point to new locations
@@ -329,6 +389,23 @@ export async function mergeCommand(repos: string[], options: CLIOptions): Promis
       logger.debug('Using --no-hoist: dependencies stay in each package');
     }
 
+    // Step 11b: Update scripts for workspace tool if specified
+    if (mergeOptions.workspaceTool && mergeOptions.workspaceTool !== 'none') {
+      const availableScripts = Object.keys(workspaceConfig.rootPackageJson.scripts as Record<string, string> || {});
+      const updatedScripts = updateScriptsForWorkspaceTool(
+        workspaceConfig.rootPackageJson.scripts as Record<string, string>,
+        mergeOptions.workspaceTool,
+        availableScripts
+      );
+      workspaceConfig.rootPackageJson.scripts = updatedScripts;
+
+      // Add workspace tool as dev dependency
+      const toolDeps = getWorkspaceToolDependencies(mergeOptions.workspaceTool);
+      const existingDevDeps = (workspaceConfig.rootPackageJson.devDependencies as Record<string, string>) || {};
+      workspaceConfig.rootPackageJson.devDependencies = { ...existingDevDeps, ...toolDeps };
+      logger.debug(`Configured for ${mergeOptions.workspaceTool} workspace tool`);
+    }
+
     await writeJson(
       path.join(mergeOptions.output, 'package.json'),
       workspaceConfig.rootPackageJson,
@@ -343,6 +420,32 @@ export async function mergeCommand(repos: string[], options: CLIOptions): Promis
       pnpmWorkspaceContent
     );
     logger.debug('Created pnpm-workspace.yaml');
+
+    // Step 12c: Generate workspace tool configuration (turbo.json or nx.json)
+    if (mergeOptions.workspaceTool && mergeOptions.workspaceTool !== 'none') {
+      const toolConfig = generateWorkspaceToolConfig(depAnalysis.packages, mergeOptions.workspaceTool);
+      if (toolConfig) {
+        await writeFile(path.join(mergeOptions.output, toolConfig.filename), toolConfig.content);
+        logger.debug(`Created ${toolConfig.filename}`);
+      }
+    }
+
+    // Step 12d: Merge CI/CD workflows if specified
+    if (mergeOptions.workflowStrategy && mergeOptions.workflowStrategy !== 'skip') {
+      logger.info('Processing CI/CD workflows...');
+      try {
+        await mergeWorkflows(
+          movedRepoPaths.map((r) => ({ path: r.path, name: r.name })),
+          {
+            strategy: mergeOptions.workflowStrategy,
+            outputDir: mergeOptions.output,
+          }
+        );
+        logger.debug('Merged CI/CD workflows');
+      } catch (error) {
+        logger.warn(`Failed to merge workflows: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
 
     // Step 12b: If --no-hoist, create .npmrc to prevent hoisting
     if (mergeOptions.noHoist) {

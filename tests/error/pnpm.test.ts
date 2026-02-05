@@ -1,7 +1,8 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import path from 'node:path';
 import fs from 'fs-extra';
 import os from 'node:os';
+import crypto from 'node:crypto';
 import { execSync } from 'node:child_process';
 import { checkPrerequisites } from '../../src/utils/validation.js';
 
@@ -9,7 +10,7 @@ describe('pnpm Error Scenarios', () => {
   let testDir: string;
 
   beforeEach(async () => {
-    testDir = path.join(os.tmpdir(), `pnpm-error-test-${Date.now()}`);
+    testDir = path.join(os.tmpdir(), `pnpm-error-test-${crypto.randomBytes(8).toString('hex')}`);
     await fs.ensureDir(testDir);
   });
 

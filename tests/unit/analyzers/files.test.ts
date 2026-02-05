@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import path from 'node:path';
 import fs from 'fs-extra';
 import os from 'node:os';
+import crypto from 'node:crypto';
 import {
   detectFileCollisions,
   filesAreIdentical,
@@ -12,7 +13,7 @@ describe('File Collision Analysis', () => {
   let testDir: string;
 
   beforeEach(async () => {
-    testDir = path.join(os.tmpdir(), `files-test-${Date.now()}`);
+    testDir = path.join(os.tmpdir(), `files-test-${crypto.randomBytes(8).toString('hex')}`);
     await fs.ensureDir(testDir);
   });
 

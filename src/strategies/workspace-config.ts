@@ -1,4 +1,17 @@
-import type { PackageInfo, WorkspaceConfig } from '../types/index.js';
+import { execSync } from 'node:child_process';
+import type { PackageInfo, WorkspaceConfig, CrossDependency } from '../types/index.js';
+
+/**
+ * Get the installed pnpm version for packageManager field
+ */
+function getPnpmVersion(): string {
+  try {
+    const version = execSync('pnpm --version', { encoding: 'utf-8' }).trim();
+    return version;
+  } catch {
+    return '9.0.0'; // Default fallback
+  }
+}
 
 /**
  * Options for generating workspace configuration
@@ -59,6 +72,7 @@ export function generateWorkspaceConfig(
     version: '0.0.0',
     private: true,
     type: 'module',
+    packageManager: `pnpm@${getPnpmVersion()}`,
     scripts: aggregateScripts(packages, packagesDir),
     dependencies: Object.keys(dependencies).length > 0 ? dependencies : undefined,
     devDependencies: Object.keys(devDependencies).length > 0 ? devDependencies : undefined,
@@ -139,4 +153,69 @@ export function generatePnpmWorkspaceYaml(packagesDir: string): string {
   return `packages:
   - '${packagesDir}/*'
 `;
+}
+
+/**
+ * Detect cross-dependencies between packages
+ */
+export function detectCrossDependencies(packages: PackageInfo[]): CrossDependency[] {
+  const crossDeps: CrossDependency[] = [];
+  const packageNames = new Set(packages.map((p) => p.name));
+
+  for (const pkg of packages) {
+    const depTypes = ['dependencies', 'devDependencies', 'peerDependencies'] as const;
+
+    for (const depType of depTypes) {
+      const deps = pkg[depType];
+      for (const [depName, version] of Object.entries(deps)) {
+        if (packageNames.has(depName)) {
+          crossDeps.push({
+            fromPackage: pkg.name,
+            toPackage: depName,
+            currentVersion: version,
+            dependencyType: depType,
+          });
+        }
+      }
+    }
+  }
+
+  return crossDeps;
+}
+
+/**
+ * Rewrite dependencies to use workspace protocol for cross-dependencies
+ */
+export function rewriteToWorkspaceProtocol(
+  packageJson: Record<string, unknown>,
+  crossDeps: CrossDependency[]
+): Record<string, unknown> {
+  const crossDepTargets = new Set(crossDeps.map((d) => d.toPackage));
+  const result = { ...packageJson };
+
+  const rewriteDeps = (deps: Record<string, string> | undefined): Record<string, string> | undefined => {
+    if (!deps) return deps;
+
+    const rewritten: Record<string, string> = {};
+    for (const [name, version] of Object.entries(deps)) {
+      if (crossDepTargets.has(name) && !version.startsWith('workspace:')) {
+        rewritten[name] = 'workspace:*';
+      } else {
+        rewritten[name] = version;
+      }
+    }
+    return rewritten;
+  };
+
+  if (result.dependencies) {
+    result.dependencies = rewriteDeps(result.dependencies as Record<string, string>);
+  }
+  if (result.devDependencies) {
+    result.devDependencies = rewriteDeps(result.devDependencies as Record<string, string>);
+  }
+  if (result.peerDependencies) {
+    result.peerDependencies = rewriteDeps(result.peerDependencies as Record<string, string>);
+  }
+
+  return result;
 }

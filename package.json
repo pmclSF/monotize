@@ -1,6 +1,6 @@
 {
   "name": "monorepo-cli",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Combine multiple Git repositories into a monorepo with workspace support",
   "type": "module",
   "bin": {

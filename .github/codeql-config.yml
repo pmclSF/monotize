@@ -1,0 +1,18 @@
+name: "CodeQL config"
+
+# Only run security queries, skip code quality checks that flag test patterns
+queries:
+  - uses: security-extended
+
+# Exclude specific queries that cause false positives in test files
+query-filters:
+  - exclude:
+      id: js/unused-local-variable
+  - exclude:
+      id: js/insecure-temporary-file
+
+paths-ignore:
+  - tests/**
+  - '**/*.test.ts'
+  - '**/*.spec.ts'
+  - node_modules/**
