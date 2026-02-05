@@ -1,8 +1,9 @@
 # Monotize
 
-> Combine multiple Git repositories into a monorepo with workspace support
+> Combine multiple Git repositories into a pnpm workspace monorepo with Turborepo/Nx support
 
-[![CI](https://github.com/pzachary/monotize/actions/workflows/ci.yml/badge.svg)](https://github.com/pzachary/monotize/actions/workflows/ci.yml)
+[![CI](https://github.com/pmclSF/monotize/actions/workflows/ci.yml/badge.svg)](https://github.com/pmclSF/monotize/actions/workflows/ci.yml)
+[![Security](https://github.com/pmclSF/monotize/actions/workflows/security.yml/badge.svg)](https://github.com/pmclSF/monotize/actions/workflows/security.yml)
 [![npm version](https://badge.fury.io/js/monorepo-cli.svg)](https://www.npmjs.com/package/monorepo-cli)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -21,15 +22,29 @@ npx monorepo-cli merge owner/repo1 owner/repo2 -o my-monorepo
 
 That's it! Your repositories are now combined into a pnpm workspace monorepo.
 
+## Why Monotize?
+
+Consolidating multiple repositories into a monorepo typically involves:
+- Copying files while preserving directory structure
+- Resolving dependency version conflicts
+- Merging configuration files (.gitignore, tsconfig, etc.)
+- Setting up workspace tooling (pnpm, Turborepo, Nx)
+- Combining CI/CD workflows
+
+Monotize automates all of this in a single command, with smart defaults and full customization options.
+
 ## Features
 
-- **Smart Merging**: Combine multiple repositories with intelligent dependency conflict detection
-- **Git History Preservation**: Keep commit history from source repositories (`--preserve-history`)
-- **Workspace Tools**: Generate Turborepo or Nx configurations (`--workspace-tool turbo|nx`)
-- **CI/CD Merging**: Automatically combine GitHub Actions workflows
-- **Conflict Resolution**: Interactive or automatic dependency conflict resolution
-- **File Collision Handling**: Smart strategies for handling duplicate files
-- **Analysis Mode**: Preview merge complexity before executing
+| Feature | Description |
+|---------|-------------|
+| **Smart Merging** | Combine multiple repositories with intelligent dependency conflict detection and resolution |
+| **Git History Preservation** | Keep commit history from source repositories using git-filter-repo or git subtree |
+| **Turborepo/Nx Support** | Generate workspace configs with task pipelines, caching, and proper dependency ordering |
+| **CI/CD Merging** | Automatically combine GitHub Actions workflows with namespaced jobs |
+| **Conflict Resolution** | Interactive or automatic resolution with `highest`, `lowest`, or `prompt` strategies |
+| **Analysis Mode** | Preview merge complexity, conflicts, and get recommendations before executing |
+| **Cross-Dependency Detection** | Automatically rewrite inter-package dependencies to workspace protocol |
+| **Flexible Sources** | Merge from GitHub, GitLab, or local directories in any combination |
 
 ## Installation
 
@@ -40,9 +55,18 @@ npm install -g monorepo-cli
 # pnpm
 pnpm add -g monorepo-cli
 
+# yarn
+yarn global add monorepo-cli
+
 # Or use npx for one-off usage
 npx monorepo-cli <command>
 ```
+
+**Prerequisites:**
+- Node.js 18+
+- pnpm (for workspace management)
+- git (for cloning repositories)
+- git-filter-repo (optional, for history preservation)
 
 ## Commands
 
@@ -118,13 +142,31 @@ monorepo analyze owner/repo1 owner/repo2
 monorepo analyze owner/repo1 owner/repo2 --json
 ```
 
-**Output includes:**
-- Package information
-- Dependency conflicts (with severity)
-- File collisions
-- Cross-dependencies between packages
-- Complexity score (0-100)
-- Recommendations
+**Sample Output:**
+```
+📊 Analysis Results
+
+Packages (2):
+  • repo1 (1.0.0) - 12 dependencies
+  • repo2 (2.1.0) - 8 dependencies
+
+⚠️  Dependency Conflicts (3):
+  • typescript: 5.0.0 vs 5.3.0 (minor)
+  • eslint: 8.0.0 vs 9.0.0 (major)
+  • lodash: 4.17.20 vs 4.17.21 (patch)
+
+📁 File Collisions (1):
+  • .eslintrc.js (different content)
+
+🔗 Cross-Dependencies (1):
+  • repo2 depends on repo1
+
+Complexity Score: 35/100 (Low)
+
+💡 Recommendations:
+  • Use --conflict-strategy highest for safe upgrades
+  • Review eslint major version change
+```
 
 ### `init`
 
@@ -333,7 +375,7 @@ Contributions are welcome! Please read our contributing guidelines before submit
 
 ```bash
 # Clone the repository
-git clone https://github.com/pzachary/monotize
+git clone https://github.com/pmclSF/monotize
 cd monotize
 
 # Install dependencies
@@ -364,6 +406,15 @@ pnpm test:e2e
 # With coverage
 pnpm test:coverage
 ```
+
+## Requirements
+
+| Requirement | Version | Notes |
+|-------------|---------|-------|
+| Node.js | 18+ | Required |
+| pnpm | 8+ | Required for workspace management |
+| git | 2.0+ | Required for cloning |
+| git-filter-repo | any | Optional, for `--preserve-history` |
 
 ## License
 
