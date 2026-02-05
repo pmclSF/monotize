@@ -185,8 +185,10 @@ function stringifyYaml(obj: unknown, indent = 0): string {
   if (typeof obj !== 'object') {
     if (typeof obj === 'string') {
       // Quote strings with special characters
-      if (obj.includes(':') || obj.includes('#') || obj.includes('\n') || obj.startsWith(' ')) {
-        return `"${obj.replace(/"/g, '\\"')}"`;
+      if (obj.includes(':') || obj.includes('#') || obj.includes('\n') || obj.startsWith(' ') || obj.includes('\\') || obj.includes('"')) {
+        // Escape backslashes first, then double quotes
+        const escaped = obj.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+        return `"${escaped}"`;
       }
       return obj;
     }
