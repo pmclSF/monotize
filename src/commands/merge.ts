@@ -3,7 +3,6 @@ import { execSync } from 'node:child_process';
 import chalk from 'chalk';
 import type {
   MergeOptions,
-  MergeResult,
   ConflictStrategy,
   FileCollisionStrategy,
 } from '../types/index.js';
