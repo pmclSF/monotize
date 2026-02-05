@@ -100,6 +100,10 @@ export interface MergeOptions {
   verbose?: boolean;
   /** Skip running package install */
   install: boolean;
+  /** Don't hoist dependencies to root - keeps each package isolated */
+  noHoist?: boolean;
+  /** Pin dependency versions by removing ^ and ~ ranges */
+  pinVersions?: boolean;
 }
 
 /**
