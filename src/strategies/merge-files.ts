@@ -1,5 +1,5 @@
 import path from 'node:path';
-import type { FileCollision, FileCollisionStrategy } from '../types/index.js';
+import type { FileCollision, FileCollisionStrategy, PackageManagerConfig } from '../types/index.js';
 import { readFile, writeFile, pathExists } from '../utils/fs.js';
 
 /**
@@ -58,11 +58,20 @@ export async function mergeIgnoreFiles(filePaths: string[]): Promise<string> {
  */
 export function generateRootReadme(
   packageNames: string[],
-  packagesDir: string
+  packagesDir: string,
+  pmConfig?: PackageManagerConfig
 ): string {
   const packageList = packageNames
     .map((name) => `- [\`${name}\`](./${packagesDir}/${name})`)
     .join('\n');
+
+  // Default to pnpm commands if no config provided
+  const installCmd = pmConfig?.installCommand || 'pnpm install';
+  const buildCmd = pmConfig?.runAllCommand('build') || 'pnpm -r build';
+  const testCmd = pmConfig?.runAllCommand('test') || 'pnpm -r test';
+
+  // Determine workspace config file for structure display
+  const workspaceConfigFile = !pmConfig || pmConfig.type === 'pnpm' ? 'pnpm-workspace.yaml' : null;
 
   return `# Monorepo
 
@@ -76,13 +85,13 @@ ${packageList}
 
 \`\`\`bash
 # Install dependencies
-pnpm install
+${installCmd}
 
 # Build all packages
-pnpm -r build
+${buildCmd}
 
 # Run tests
-pnpm -r test
+${testCmd}
 \`\`\`
 
 ## Structure
@@ -91,8 +100,7 @@ pnpm -r test
 .
 ├── ${packagesDir}/
 ${packageNames.map((name) => `│   ├── ${name}/`).join('\n')}
-├── package.json
-└── pnpm-workspace.yaml
+├── package.json${workspaceConfigFile ? `\n└── ${workspaceConfigFile}` : ''}
 \`\`\`
 `;
 }

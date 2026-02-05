@@ -24,6 +24,8 @@ const EXCLUDE_PATTERNS = [
   'node_modules',
   '.git',
   '.pnpm-store',
+  '.yarn',
+  '.npm',
   'dist',
   'build',
   '.next',

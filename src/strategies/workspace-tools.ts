@@ -5,6 +5,7 @@ import type {
   TurboTask,
   NxConfig,
   NxTargetDefault,
+  PackageManagerConfig,
 } from '../types/index.js';
 
 /**
@@ -220,7 +221,7 @@ export function generateWorkspaceToolConfig(
 /**
  * Get the package manager run command for a workspace tool
  */
-export function getWorkspaceToolRunCommand(tool: WorkspaceTool): string {
+export function getWorkspaceToolRunCommand(tool: WorkspaceTool, pmConfig?: PackageManagerConfig): string {
   switch (tool) {
     case 'turbo':
       return 'turbo run';
@@ -228,6 +229,10 @@ export function getWorkspaceToolRunCommand(tool: WorkspaceTool): string {
       return 'nx run-many --target=';
     case 'none':
     default:
+      // Use the package manager's run command if provided
+      if (pmConfig) {
+        return pmConfig.runAllCommand('').replace(/\s+$/, ''); // Get the base command
+      }
       return 'pnpm -r';
   }
 }

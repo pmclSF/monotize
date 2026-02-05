@@ -1,25 +1,23 @@
 import path from 'node:path';
 import { execSync } from 'node:child_process';
-import type { WorkspaceTool } from '../types/index.js';
-
-/**
- * Get the installed pnpm version for packageManager field
- */
-function getPnpmVersion(): string {
-  try {
-    const version = execSync('pnpm --version', { encoding: 'utf-8' }).trim();
-    return version;
-  } catch {
-    return '9.0.0'; // Default fallback
-  }
-}
+import type { WorkspaceTool, PackageManagerType, PackageManagerConfig } from '../types/index.js';
 import { createLogger } from '../utils/logger.js';
 import { ensureDir, writeFile, writeJson, pathExists } from '../utils/fs.js';
 import {
   generateWorkspaceToolConfig,
   getWorkspaceToolDependencies,
+  getWorkspaceToolRunCommand,
 } from '../strategies/workspace-tools.js';
-import { generatePnpmWorkspaceYaml } from '../strategies/workspace-config.js';
+import {
+  createPackageManagerConfig,
+  generateWorkspaceFiles,
+  getWorkspacesConfig,
+  getPackageManagerField,
+  parsePackageManagerType,
+  validatePackageManager,
+  getPackageManagerDisplayName,
+  getGitignoreEntries,
+} from '../strategies/package-manager.js';
 
 /**
  * CLI options passed from commander
@@ -27,6 +25,7 @@ import { generatePnpmWorkspaceYaml } from '../strategies/workspace-config.js';
 interface CLIInitOptions {
   packagesDir?: string;
   workspaceTool?: string;
+  packageManager?: string;
   git?: boolean;
   verbose?: boolean;
 }
@@ -36,44 +35,47 @@ interface CLIInitOptions {
  */
 function generateRootPackageJson(
   name: string,
-  workspaceTool: WorkspaceTool
+  packagesDir: string,
+  workspaceTool: WorkspaceTool,
+  pmConfig: PackageManagerConfig
 ): Record<string, unknown> {
   const scripts: Record<string, string> = {};
 
-  // Add workspace tool-specific scripts
-  switch (workspaceTool) {
-    case 'turbo':
-      scripts.build = 'turbo run build';
-      scripts.test = 'turbo run test';
-      scripts.lint = 'turbo run lint';
-      scripts.dev = 'turbo run dev';
-      break;
-    case 'nx':
-      scripts.build = 'nx run-many --target=build';
-      scripts.test = 'nx run-many --target=test';
-      scripts.lint = 'nx run-many --target=lint';
-      scripts.dev = 'nx run-many --target=dev';
-      break;
-    case 'none':
-    default:
-      scripts.build = 'pnpm -r build';
-      scripts.test = 'pnpm -r test';
-      scripts.lint = 'pnpm -r lint';
-      scripts.dev = 'pnpm -r dev';
-      break;
-  }
+  // Get the base run command based on workspace tool and package manager
+  const getRunCommand = (script: string): string => {
+    switch (workspaceTool) {
+      case 'turbo':
+        return `turbo run ${script}`;
+      case 'nx':
+        return `nx run-many --target=${script}`;
+      case 'none':
+      default:
+        return pmConfig.runAllCommand(script);
+    }
+  };
+
+  scripts.build = getRunCommand('build');
+  scripts.test = getRunCommand('test');
+  scripts.lint = getRunCommand('lint');
+  scripts.dev = getRunCommand('dev');
 
   const packageJson: Record<string, unknown> = {
     name,
     version: '0.0.0',
     private: true,
     type: 'module',
-    packageManager: `pnpm@${getPnpmVersion()}`,
+    packageManager: getPackageManagerField(pmConfig),
     scripts,
     engines: {
       node: '>=18',
     },
   };
+
+  // Add workspaces field for yarn/npm
+  const workspacesConfig = getWorkspacesConfig(pmConfig, packagesDir);
+  if (workspacesConfig) {
+    packageJson.workspaces = workspacesConfig;
+  }
 
   // Add workspace tool as dev dependency
   const toolDeps = getWorkspaceToolDependencies(workspaceTool);
@@ -87,10 +89,12 @@ function generateRootPackageJson(
 /**
  * Generate a basic .gitignore for the monorepo
  */
-function generateGitignore(): string {
+function generateGitignore(pmConfig: PackageManagerConfig): string {
+  const pmEntries = getGitignoreEntries(pmConfig);
+  const pmSection = pmEntries.length > 0 ? `\n# Package manager\n${pmEntries.join('\n')}\n` : '';
+
   return `# Dependencies
 node_modules/
-.pnpm-store/
 
 # Build outputs
 dist/
@@ -114,6 +118,7 @@ Thumbs.db
 *.log
 npm-debug.log*
 pnpm-debug.log*
+yarn-error.log*
 
 # Test coverage
 coverage/
@@ -128,13 +133,21 @@ coverage/
 
 # Nx
 .nx/
-`;
+${pmSection}`;
 }
 
 /**
  * Generate a basic README for the monorepo
  */
-function generateReadme(name: string, packagesDir: string, workspaceTool: WorkspaceTool): string {
+function generateReadme(
+  name: string,
+  packagesDir: string,
+  workspaceTool: WorkspaceTool,
+  pmConfig: PackageManagerConfig
+): string {
+  const pmName = pmConfig.type === 'yarn-berry' ? 'yarn' : pmConfig.type;
+  const filterExample = pmConfig.runFilteredCommand('<package-name>', '<command>');
+
   let toolSection = '';
 
   switch (workspaceTool) {
@@ -146,13 +159,13 @@ This monorepo uses [Turborepo](https://turbo.build/) for task orchestration.
 
 \`\`\`bash
 # Run builds with caching
-pnpm build
+${pmName} run build
 
 # Run tests across all packages
-pnpm test
+${pmName} run test
 
 # Run development mode
-pnpm dev
+${pmName} run dev
 \`\`\`
 `;
       break;
@@ -164,10 +177,10 @@ This monorepo uses [Nx](https://nx.dev/) for task orchestration.
 
 \`\`\`bash
 # Run builds with caching
-pnpm build
+${pmName} run build
 
 # Run tests across all packages
-pnpm test
+${pmName} run test
 
 # View dependency graph
 npx nx graph
@@ -180,29 +193,32 @@ npx nx graph
 
 \`\`\`bash
 # Build all packages
-pnpm build
+${pmConfig.runAllCommand('build')}
 
 # Test all packages
-pnpm test
+${pmConfig.runAllCommand('test')}
 
 # Run a command in a specific package
-pnpm --filter <package-name> <command>
+${filterExample}
 \`\`\`
 `;
   }
 
+  // Determine workspace config file for structure display
+  const workspaceConfigFile = pmConfig.type === 'pnpm' ? 'pnpm-workspace.yaml' : null;
+
   return `# ${name}
 
-A pnpm monorepo workspace.
+A ${getPackageManagerDisplayName(pmConfig.type)} monorepo workspace.
 
 ## Getting Started
 
 \`\`\`bash
 # Install dependencies
-pnpm install
+${pmConfig.installCommand}
 
 # Build all packages
-pnpm build
+${pmConfig.runAllCommand('build')}
 \`\`\`
 
 ## Structure
@@ -210,8 +226,7 @@ pnpm build
 \`\`\`
 ${name}/
 ├── ${packagesDir}/         # Workspace packages
-├── package.json
-└── pnpm-workspace.yaml
+├── package.json${workspaceConfigFile ? `\n└── ${workspaceConfigFile}` : ''}
 \`\`\`
 ${toolSection}
 ## Adding a Package
@@ -221,7 +236,7 @@ Create a new package in the \`${packagesDir}/\` directory:
 \`\`\`bash
 mkdir ${packagesDir}/my-package
 cd ${packagesDir}/my-package
-pnpm init
+${pmName} init
 \`\`\`
 `;
 }
@@ -241,6 +256,19 @@ export async function initCommand(
 
   const logger = createLogger(options.verbose);
 
+  // Determine package manager
+  const pmType = parsePackageManagerType(options.packageManager || 'pnpm');
+
+  // Validate package manager is installed
+  const pmValidation = validatePackageManager(pmType);
+  if (!pmValidation.valid) {
+    logger.error(pmValidation.error!);
+    process.exit(1);
+  }
+
+  const pmConfig = createPackageManagerConfig(pmType);
+  logger.debug(`Using package manager: ${getPackageManagerDisplayName(pmType)} v${pmConfig.version}`);
+
   try {
     // Check if directory already has a package.json
     const packageJsonPath = path.join(targetDir, 'package.json');
@@ -258,14 +286,16 @@ export async function initCommand(
     logger.debug(`Created ${packagesDir}/ directory`);
 
     // Create package.json
-    const packageJson = generateRootPackageJson(name, workspaceTool);
+    const packageJson = generateRootPackageJson(name, packagesDir, workspaceTool, pmConfig);
     await writeJson(packageJsonPath, packageJson, { spaces: 2 });
     logger.debug('Created package.json');
 
-    // Create pnpm-workspace.yaml
-    const pnpmWorkspaceContent = generatePnpmWorkspaceYaml(packagesDir);
-    await writeFile(path.join(targetDir, 'pnpm-workspace.yaml'), pnpmWorkspaceContent);
-    logger.debug('Created pnpm-workspace.yaml');
+    // Create workspace files (pnpm-workspace.yaml for pnpm)
+    const workspaceFiles = generateWorkspaceFiles(pmConfig, packagesDir);
+    for (const file of workspaceFiles) {
+      await writeFile(path.join(targetDir, file.filename), file.content);
+      logger.debug(`Created ${file.filename}`);
+    }
 
     // Create workspace tool config
     if (workspaceTool !== 'none') {
@@ -277,12 +307,12 @@ export async function initCommand(
     }
 
     // Create .gitignore
-    const gitignoreContent = generateGitignore();
+    const gitignoreContent = generateGitignore(pmConfig);
     await writeFile(path.join(targetDir, '.gitignore'), gitignoreContent);
     logger.debug('Created .gitignore');
 
     // Create README.md
-    const readmeContent = generateReadme(name, packagesDir, workspaceTool);
+    const readmeContent = generateReadme(name, packagesDir, workspaceTool, pmConfig);
     await writeFile(path.join(targetDir, 'README.md'), readmeContent);
     logger.debug('Created README.md');
 
@@ -309,6 +339,7 @@ export async function initCommand(
     logger.log('');
     logger.log(`  Location: ${targetDir}`);
     logger.log(`  Packages directory: ${packagesDir}/`);
+    logger.log(`  Package manager: ${getPackageManagerDisplayName(pmConfig.type)}`);
     if (workspaceTool !== 'none') {
       logger.log(`  Workspace tool: ${workspaceTool}`);
     }
@@ -317,7 +348,7 @@ export async function initCommand(
     if (directory) {
       logger.log(`  cd ${directory}`);
     }
-    logger.log('  pnpm install');
+    logger.log(`  ${pmConfig.installCommand}`);
     logger.log(`  # Create packages in ${packagesDir}/`);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

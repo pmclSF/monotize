@@ -1,17 +1,8 @@
-import { execSync } from 'node:child_process';
-import type { PackageInfo, WorkspaceConfig, CrossDependency } from '../types/index.js';
-
-/**
- * Get the installed pnpm version for packageManager field
- */
-function getPnpmVersion(): string {
-  try {
-    const version = execSync('pnpm --version', { encoding: 'utf-8' }).trim();
-    return version;
-  } catch {
-    return '9.0.0'; // Default fallback
-  }
-}
+import type { PackageInfo, WorkspaceConfig, CrossDependency, PackageManagerConfig } from '../types/index.js';
+import {
+  createPackageManagerConfig,
+  getPackageManagerField,
+} from './package-manager.js';
 
 /**
  * Options for generating workspace configuration
@@ -25,6 +16,8 @@ export interface WorkspaceConfigOptions {
   dependencies: Record<string, string>;
   /** Resolved dev dependencies */
   devDependencies: Record<string, string>;
+  /** Package manager configuration */
+  pmConfig?: PackageManagerConfig;
 }
 
 /**
@@ -32,7 +25,8 @@ export interface WorkspaceConfigOptions {
  */
 function aggregateScripts(
   packages: PackageInfo[],
-  _packagesDir: string
+  _packagesDir: string,
+  pmConfig: PackageManagerConfig
 ): Record<string, string> {
   const scripts: Record<string, string> = {};
 
@@ -42,7 +36,7 @@ function aggregateScripts(
   for (const script of commonScripts) {
     const packagesWithScript = packages.filter((pkg) => pkg.scripts[script]);
     if (packagesWithScript.length > 0) {
-      scripts[script] = `pnpm -r ${script}`;
+      scripts[script] = pmConfig.runAllCommand(script);
     }
   }
 
@@ -50,7 +44,7 @@ function aggregateScripts(
   for (const pkg of packages) {
     for (const scriptName of Object.keys(pkg.scripts)) {
       const prefixedName = `${pkg.repoName}:${scriptName}`;
-      scripts[prefixedName] = `pnpm --filter ${pkg.repoName} ${scriptName}`;
+      scripts[prefixedName] = pmConfig.runFilteredCommand(pkg.repoName, scriptName);
     }
   }
 
@@ -66,14 +60,17 @@ export function generateWorkspaceConfig(
 ): WorkspaceConfig {
   const { rootName = 'monorepo', packagesDir, dependencies, devDependencies } = options;
 
+  // Use provided pmConfig or default to pnpm
+  const pmConfig = options.pmConfig || createPackageManagerConfig('pnpm');
+
   // Generate root package.json
   const rootPackageJson: Record<string, unknown> = {
     name: rootName,
     version: '0.0.0',
     private: true,
     type: 'module',
-    packageManager: `pnpm@${getPnpmVersion()}`,
-    scripts: aggregateScripts(packages, packagesDir),
+    packageManager: getPackageManagerField(pmConfig),
+    scripts: aggregateScripts(packages, packagesDir, pmConfig),
     dependencies: Object.keys(dependencies).length > 0 ? dependencies : undefined,
     devDependencies: Object.keys(devDependencies).length > 0 ? devDependencies : undefined,
     engines: {
@@ -104,7 +101,8 @@ export function generateWorkspaceConfig(
  */
 export function updatePackageForWorkspace(
   pkg: PackageInfo,
-  allPackages: PackageInfo[]
+  allPackages: PackageInfo[],
+  workspaceProtocol: string = 'workspace:*'
 ): Record<string, unknown> {
   const packageJson: Record<string, unknown> = {
     name: pkg.name,
@@ -123,7 +121,7 @@ export function updatePackageForWorkspace(
     const updated: Record<string, string> = {};
     for (const [name, version] of Object.entries(deps)) {
       if (internalPackageNames.has(name)) {
-        updated[name] = 'workspace:*';
+        updated[name] = workspaceProtocol;
       } else {
         updated[name] = version;
       }

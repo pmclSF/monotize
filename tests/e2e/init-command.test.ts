@@ -5,6 +5,18 @@ import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
 
+// Check if yarn is installed
+function isYarnInstalled(): boolean {
+  try {
+    execSync('yarn --version', { stdio: 'pipe' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const YARN_INSTALLED = isYarnInstalled();
+
 describe('init command E2E', () => {
   let tempDir: string;
 
@@ -175,5 +187,80 @@ describe('init command E2E', () => {
 
     expect(output).toContain('Next steps');
     expect(output).toContain('pnpm install');
+  });
+
+  describe('package manager options', () => {
+    it.skipIf(!YARN_INSTALLED)('should init with yarn package manager', async () => {
+      const outputDir = path.join(tempDir, 'yarn-monorepo');
+
+      const output = runInit(outputDir, '--package-manager yarn --no-git');
+
+      // Should NOT have pnpm-workspace.yaml
+      expect(await fs.pathExists(path.join(outputDir, 'pnpm-workspace.yaml'))).toBe(false);
+
+      // Should have workspaces in package.json
+      const packageJson = await fs.readJson(path.join(outputDir, 'package.json'));
+      expect(packageJson.workspaces).toEqual(['packages/*']);
+      expect(packageJson.packageManager).toMatch(/^yarn@/);
+
+      // Should have yarn-specific commands in README
+      const readme = await fs.readFile(path.join(outputDir, 'README.md'), 'utf-8');
+      expect(readme).toContain('yarn');
+
+      // Should mention yarn in output
+      expect(output).toContain('yarn');
+    });
+
+    it('should init with npm package manager', async () => {
+      const outputDir = path.join(tempDir, 'npm-monorepo');
+
+      const output = runInit(outputDir, '--package-manager npm --no-git');
+
+      // Should NOT have pnpm-workspace.yaml
+      expect(await fs.pathExists(path.join(outputDir, 'pnpm-workspace.yaml'))).toBe(false);
+
+      // Should have workspaces in package.json
+      const packageJson = await fs.readJson(path.join(outputDir, 'package.json'));
+      expect(packageJson.workspaces).toEqual(['packages/*']);
+      expect(packageJson.packageManager).toMatch(/^npm@/);
+
+      // Should have npm-specific commands in README
+      const readme = await fs.readFile(path.join(outputDir, 'README.md'), 'utf-8');
+      expect(readme).toContain('npm');
+
+      // Should mention npm in output
+      expect(output).toContain('npm');
+    });
+
+    it.skipIf(!YARN_INSTALLED)('should init with yarn-berry package manager', async () => {
+      const outputDir = path.join(tempDir, 'yarn-berry-monorepo');
+
+      const output = runInit(outputDir, '--package-manager yarn-berry --no-git');
+
+      // Should NOT have pnpm-workspace.yaml
+      expect(await fs.pathExists(path.join(outputDir, 'pnpm-workspace.yaml'))).toBe(false);
+
+      // Should have workspaces in package.json
+      const packageJson = await fs.readJson(path.join(outputDir, 'package.json'));
+      expect(packageJson.workspaces).toEqual(['packages/*']);
+      expect(packageJson.packageManager).toMatch(/^yarn@/);
+
+      // Scripts should use yarn workspaces foreach
+      expect(packageJson.scripts?.build).toContain('yarn workspaces foreach');
+    });
+
+    it('should use pnpm by default', async () => {
+      const outputDir = path.join(tempDir, 'default-monorepo');
+
+      runInit(outputDir, '--no-git');
+
+      // Should have pnpm-workspace.yaml
+      expect(await fs.pathExists(path.join(outputDir, 'pnpm-workspace.yaml'))).toBe(true);
+
+      // Should NOT have workspaces in package.json (pnpm uses separate file)
+      const packageJson = await fs.readJson(path.join(outputDir, 'package.json'));
+      expect(packageJson.workspaces).toBeUndefined();
+      expect(packageJson.packageManager).toMatch(/^pnpm@/);
+    });
   });
 });

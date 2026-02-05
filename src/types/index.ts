@@ -1,4 +1,31 @@
 /**
+ * Package manager type
+ */
+export type PackageManagerType = 'pnpm' | 'yarn' | 'yarn-berry' | 'npm';
+
+/**
+ * Package manager configuration
+ */
+export interface PackageManagerConfig {
+  /** Package manager type */
+  type: PackageManagerType;
+  /** Package manager version */
+  version: string;
+  /** Command to install dependencies */
+  installCommand: string;
+  /** Generate command to run a script across all packages */
+  runAllCommand: (script: string) => string;
+  /** Generate command to run a script in a specific package */
+  runFilteredCommand: (pkg: string, script: string) => string;
+  /** Lock file name */
+  lockFile: string;
+  /** Workspace protocol for internal dependencies */
+  workspaceProtocol: string;
+  /** Entries to add to .gitignore */
+  gitignoreEntries: string[];
+}
+
+/**
  * Type of repository source
  */
 export type RepoSourceType = 'github' | 'gitlab' | 'url' | 'local';

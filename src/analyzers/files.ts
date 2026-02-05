@@ -28,6 +28,9 @@ const SKIP_FILES = new Set([
   'pnpm-lock.yaml',
   'yarn.lock',
   'pnpm-workspace.yaml',
+  '.yarnrc.yml',
+  '.yarnrc',
+  '.npmrc',
 ]);
 
 /**
