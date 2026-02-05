@@ -7,6 +7,8 @@ import type {
   FileCollisionStrategy,
   WorkspaceTool,
   WorkflowMergeStrategy,
+  PackageManagerType,
+  PackageManagerConfig,
 } from '../types/index.js';
 import { createLogger, formatHeader, formatList } from '../utils/logger.js';
 import {
@@ -35,7 +37,6 @@ import {
 } from '../strategies/merge-files.js';
 import {
   generateWorkspaceConfig,
-  generatePnpmWorkspaceYaml,
 } from '../strategies/workspace-config.js';
 import {
   generateWorkspaceToolConfig,
@@ -49,6 +50,16 @@ import {
   formatConflict,
   getConflictSummary,
 } from '../resolvers/dependencies.js';
+import {
+  createPackageManagerConfig,
+  detectPackageManagerFromSources,
+  generateWorkspaceFiles,
+  getWorkspacesConfig,
+  getPackageManagerField,
+  parsePackageManagerType,
+  validatePackageManager,
+  getPackageManagerDisplayName,
+} from '../strategies/package-manager.js';
 
 /**
  * CLI options passed from commander
@@ -63,6 +74,8 @@ interface CLIOptions {
   install: boolean;
   hoist?: boolean; // Commander uses --no-hoist -> hoist: false
   pinVersions?: boolean;
+  packageManager?: string;
+  autoDetectPm?: boolean;
   // Phase 2 options
   preserveHistory?: boolean;
   workspaceTool?: string;
@@ -76,11 +89,16 @@ function printDryRunReport(
   packages: Array<{ path: string; name: string }>,
   conflicts: Array<{ name: string; versions: Array<{ version: string; source: string }>; severity: string }>,
   collisions: Array<{ path: string; sources: string[]; suggestedStrategy: string }>,
-  options: MergeOptions
+  options: MergeOptions,
+  pmConfig: PackageManagerConfig
 ): void {
   const logger = createLogger(options.verbose);
 
   logger.log(formatHeader('Dry Run Report'));
+
+  // Package manager
+  logger.log(chalk.bold('\nPackage manager:'));
+  logger.log(`  ${getPackageManagerDisplayName(pmConfig.type)}`);
 
   // Packages to merge
   logger.log(chalk.bold('\nPackages to merge:'));
@@ -123,7 +141,9 @@ function printDryRunReport(
     logger.log(`  │   └── ${pkg.name}/`);
   }
   logger.log('  ├── package.json');
-  logger.log('  ├── pnpm-workspace.yaml');
+  if (pmConfig.type === 'pnpm') {
+    logger.log('  ├── pnpm-workspace.yaml');
+  }
   logger.log('  └── README.md');
 
   logger.log('');
@@ -178,7 +198,10 @@ export async function mergeCommand(repos: string[], options: CLIOptions): Promis
   });
 
   try {
-    // Step 0: Check prerequisites for history preservation
+    // Step 0a: Determine package manager to use
+    let pmType: PackageManagerType = parsePackageManagerType(options.packageManager || 'pnpm');
+
+    // Step 0b: Check prerequisites for history preservation
     if (mergeOptions.preserveHistory) {
       const hasFilterRepo = await checkGitFilterRepo();
       if (!hasFilterRepo) {
@@ -211,6 +234,29 @@ export async function mergeCommand(repos: string[], options: CLIOptions): Promis
       verbose: mergeOptions.verbose,
     });
 
+    // Step 3b: Auto-detect package manager if requested
+    if (options.autoDetectPm) {
+      const detected = await detectPackageManagerFromSources(repoPaths);
+      if (detected) {
+        pmType = detected;
+        logger.info(`Auto-detected package manager: ${getPackageManagerDisplayName(pmType)}`);
+      } else {
+        logger.debug('No package manager detected from sources, using default');
+      }
+    }
+
+    // Step 3c: Validate package manager is installed
+    const pmValidation = validatePackageManager(pmType);
+    if (!pmValidation.valid) {
+      logger.error(pmValidation.error!);
+      await cleanup();
+      process.exit(1);
+    }
+
+    // Create package manager config
+    const pmConfig = createPackageManagerConfig(pmType);
+    logger.debug(`Using package manager: ${getPackageManagerDisplayName(pmType)} v${pmConfig.version}`);
+
     // Step 4: Run dependency analysis
     logger.info('Analyzing dependencies...');
     const depAnalysis = await analyzeDependencies(repoPaths);
@@ -237,7 +283,7 @@ export async function mergeCommand(repos: string[], options: CLIOptions): Promis
 
     // Step 6: If --dry-run, print report and exit
     if (mergeOptions.dryRun) {
-      printDryRunReport(repoPaths, depAnalysis.conflicts, collisions, mergeOptions);
+      printDryRunReport(repoPaths, depAnalysis.conflicts, collisions, mergeOptions, pmConfig);
       await cleanup();
       return;
     }
@@ -383,6 +429,7 @@ export async function mergeCommand(repos: string[], options: CLIOptions): Promis
       packagesDir: mergeOptions.packagesDir,
       dependencies: mergeOptions.noHoist ? {} : resolvedDeps.dependencies,
       devDependencies: mergeOptions.noHoist ? {} : resolvedDeps.devDependencies,
+      pmConfig,
     });
 
     if (mergeOptions.noHoist) {
@@ -406,6 +453,15 @@ export async function mergeCommand(repos: string[], options: CLIOptions): Promis
       logger.debug(`Configured for ${mergeOptions.workspaceTool} workspace tool`);
     }
 
+    // Add workspaces field for yarn/npm (not needed for pnpm)
+    const workspacesConfig = getWorkspacesConfig(pmConfig, mergeOptions.packagesDir);
+    if (workspacesConfig) {
+      workspaceConfig.rootPackageJson.workspaces = workspacesConfig;
+    }
+
+    // Set the packageManager field
+    workspaceConfig.rootPackageJson.packageManager = getPackageManagerField(pmConfig);
+
     await writeJson(
       path.join(mergeOptions.output, 'package.json'),
       workspaceConfig.rootPackageJson,
@@ -413,13 +469,12 @@ export async function mergeCommand(repos: string[], options: CLIOptions): Promis
     );
     logger.debug('Created root package.json');
 
-    // Step 12: Generate pnpm-workspace.yaml
-    const pnpmWorkspaceContent = generatePnpmWorkspaceYaml(mergeOptions.packagesDir);
-    await writeFile(
-      path.join(mergeOptions.output, 'pnpm-workspace.yaml'),
-      pnpmWorkspaceContent
-    );
-    logger.debug('Created pnpm-workspace.yaml');
+    // Step 12: Generate workspace files (pnpm-workspace.yaml for pnpm)
+    const workspaceFiles = generateWorkspaceFiles(pmConfig, mergeOptions.packagesDir);
+    for (const file of workspaceFiles) {
+      await writeFile(path.join(mergeOptions.output, file.filename), file.content);
+      logger.debug(`Created ${file.filename}`);
+    }
 
     // Step 12c: Generate workspace tool configuration (turbo.json or nx.json)
     if (mergeOptions.workspaceTool && mergeOptions.workspaceTool !== 'none') {
@@ -492,22 +547,23 @@ dist/
     // Step 14: Generate root README.md
     const readmeContent = generateRootReadme(
       movedRepoPaths.map((r) => r.name),
-      mergeOptions.packagesDir
+      mergeOptions.packagesDir,
+      pmConfig
     );
     await writeFile(path.join(mergeOptions.output, 'README.md'), readmeContent);
     logger.debug('Created README.md');
 
-    // Step 15: Run pnpm install (unless --no-install)
+    // Step 15: Run install (unless --no-install)
     if (mergeOptions.install) {
       logger.info('Installing dependencies...');
       try {
-        execSync('pnpm install', {
+        execSync(pmConfig.installCommand, {
           cwd: mergeOptions.output,
           stdio: mergeOptions.verbose ? 'inherit' : 'pipe',
         });
         logger.success('Dependencies installed');
       } catch (error) {
-        logger.warn('Failed to install dependencies. Run "pnpm install" manually.');
+        logger.warn(`Failed to install dependencies. Run "${pmConfig.installCommand}" manually.`);
       }
     } else {
       logger.info('Skipping dependency installation (--no-install)');
@@ -519,6 +575,7 @@ dist/
     logger.log('');
     logger.log(`  ${chalk.cyan('Location:')} ${mergeOptions.output}`);
     logger.log(`  ${chalk.cyan('Packages:')} ${movedRepoPaths.length}`);
+    logger.log(`  ${chalk.cyan('Package manager:')} ${getPackageManagerDisplayName(pmConfig.type)}`);
 
     if (depAnalysis.conflicts.length > 0) {
       logger.log(
@@ -530,9 +587,9 @@ dist/
     logger.log('Next steps:');
     logger.log(`  cd ${mergeOptions.output}`);
     if (!mergeOptions.install) {
-      logger.log('  pnpm install');
+      logger.log(`  ${pmConfig.installCommand}`);
     }
-    logger.log('  pnpm build');
+    logger.log(`  ${pmConfig.runAllCommand('build')}`);
 
     // Clean up temp directory
     await cleanup();

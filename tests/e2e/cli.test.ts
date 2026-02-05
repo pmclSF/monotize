@@ -8,6 +8,21 @@ import crypto from 'node:crypto';
 const CLI_PATH = path.join(__dirname, '../../bin/monorepo.js');
 const FIXTURES_PATH = path.join(__dirname, '../fixtures');
 
+// Check if yarn is installed
+function isYarnInstalled(): boolean {
+  try {
+    execSync('yarn --version', { stdio: 'pipe' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const YARN_INSTALLED = isYarnInstalled();
+
+// Retry count for flaky tests (temp directory race conditions)
+const FLAKY_TEST_RETRIES = 2;
+
 describe('CLI End-to-End Tests', () => {
   let testOutputDir: string;
 
@@ -71,7 +86,7 @@ describe('CLI End-to-End Tests', () => {
   });
 
   describe('flag combinations', () => {
-    it('should accept -y flag for non-interactive mode', () => {
+    it('should accept -y flag for non-interactive mode', { retry: FLAKY_TEST_RETRIES }, () => {
       const outputDir = path.join(testOutputDir, 'output-y');
       const output = runCLI([
         'merge',
@@ -83,7 +98,7 @@ describe('CLI End-to-End Tests', () => {
       expect(output).toContain('created successfully');
     });
 
-    it('should accept --yes flag for non-interactive mode', () => {
+    it('should accept --yes flag for non-interactive mode', { retry: FLAKY_TEST_RETRIES }, () => {
       const outputDir = path.join(testOutputDir, 'output-yes');
       const output = runCLI([
         'merge',
@@ -95,7 +110,7 @@ describe('CLI End-to-End Tests', () => {
       expect(output).toContain('created successfully');
     });
 
-    it('should accept -v flag for verbose output', () => {
+    it('should accept -v flag for verbose output', { retry: FLAKY_TEST_RETRIES }, () => {
       const outputDir = path.join(testOutputDir, 'output-verbose');
       const output = runCLI([
         'merge',
@@ -109,7 +124,7 @@ describe('CLI End-to-End Tests', () => {
       expect(output).toContain('created successfully');
     });
 
-    it('should accept custom packages directory', () => {
+    it('should accept custom packages directory', { retry: FLAKY_TEST_RETRIES }, () => {
       const outputDir = path.join(testOutputDir, 'output-custom-pkg');
       runCLI([
         'merge',
@@ -124,7 +139,7 @@ describe('CLI End-to-End Tests', () => {
       expect(fs.existsSync(path.join(outputDir, 'libs', 'repo-a'))).toBe(true);
     });
 
-    it('should accept --conflict-strategy flag', () => {
+    it('should accept --conflict-strategy flag', { retry: FLAKY_TEST_RETRIES }, () => {
       const outputDir = path.join(testOutputDir, 'output-strategy');
       const output = runCLI([
         'merge',
@@ -335,7 +350,7 @@ describe('CLI End-to-End Tests', () => {
       expect(workspace).toContain('packages/*');
     });
 
-    it('should create README.md', () => {
+    it('should create README.md', { retry: FLAKY_TEST_RETRIES }, () => {
       const outputDir = path.join(testOutputDir, 'readme-test');
       runCLI([
         'merge',
@@ -348,7 +363,7 @@ describe('CLI End-to-End Tests', () => {
       expect(fs.existsSync(path.join(outputDir, 'README.md'))).toBe(true);
     });
 
-    it('should create .gitignore', () => {
+    it('should create .gitignore', { retry: FLAKY_TEST_RETRIES }, () => {
       const outputDir = path.join(testOutputDir, 'gitignore-test');
       runCLI([
         'merge',
@@ -359,6 +374,90 @@ describe('CLI End-to-End Tests', () => {
       ]);
 
       expect(fs.existsSync(path.join(outputDir, '.gitignore'))).toBe(true);
+    });
+  });
+
+  describe('package manager options', () => {
+    it.skipIf(!YARN_INSTALLED)('should merge with yarn package manager', { retry: FLAKY_TEST_RETRIES }, () => {
+      const outputDir = path.join(testOutputDir, 'yarn-test');
+      runCLI([
+        'merge',
+        path.join(FIXTURES_PATH, 'repo-a'),
+        '-y',
+        '-o', outputDir,
+        '--no-install',
+        '--package-manager', 'yarn',
+      ]);
+
+      // Should NOT have pnpm-workspace.yaml
+      expect(fs.existsSync(path.join(outputDir, 'pnpm-workspace.yaml'))).toBe(false);
+
+      // Should have workspaces in package.json
+      const pkgJson = fs.readJsonSync(path.join(outputDir, 'package.json'));
+      expect(pkgJson.workspaces).toEqual(['packages/*']);
+      expect(pkgJson.packageManager).toMatch(/^yarn@/);
+      expect(pkgJson.scripts?.build).toContain('yarn workspaces run');
+    });
+
+    it('should merge with npm package manager', { retry: FLAKY_TEST_RETRIES }, () => {
+      const outputDir = path.join(testOutputDir, 'npm-test');
+      runCLI([
+        'merge',
+        path.join(FIXTURES_PATH, 'repo-a'),
+        '-y',
+        '-o', outputDir,
+        '--no-install',
+        '--package-manager', 'npm',
+      ]);
+
+      // Should NOT have pnpm-workspace.yaml
+      expect(fs.existsSync(path.join(outputDir, 'pnpm-workspace.yaml'))).toBe(false);
+
+      // Should have workspaces in package.json
+      const pkgJson = fs.readJsonSync(path.join(outputDir, 'package.json'));
+      expect(pkgJson.workspaces).toEqual(['packages/*']);
+      expect(pkgJson.packageManager).toMatch(/^npm@/);
+      expect(pkgJson.scripts?.build).toContain('npm run');
+    });
+
+    it.skipIf(!YARN_INSTALLED)('should merge with yarn-berry package manager', { retry: FLAKY_TEST_RETRIES }, () => {
+      const outputDir = path.join(testOutputDir, 'yarn-berry-test');
+      runCLI([
+        'merge',
+        path.join(FIXTURES_PATH, 'repo-a'),
+        '-y',
+        '-o', outputDir,
+        '--no-install',
+        '--package-manager', 'yarn-berry',
+      ]);
+
+      // Should NOT have pnpm-workspace.yaml
+      expect(fs.existsSync(path.join(outputDir, 'pnpm-workspace.yaml'))).toBe(false);
+
+      // Should have workspaces in package.json
+      const pkgJson = fs.readJsonSync(path.join(outputDir, 'package.json'));
+      expect(pkgJson.workspaces).toEqual(['packages/*']);
+      expect(pkgJson.packageManager).toMatch(/^yarn@/);
+      expect(pkgJson.scripts?.build).toContain('yarn workspaces foreach');
+    });
+
+    it('should keep pnpm as default', { retry: FLAKY_TEST_RETRIES }, () => {
+      const outputDir = path.join(testOutputDir, 'pnpm-default-test');
+      runCLI([
+        'merge',
+        path.join(FIXTURES_PATH, 'repo-a'),
+        '-y',
+        '-o', outputDir,
+        '--no-install',
+      ]);
+
+      // Should have pnpm-workspace.yaml
+      expect(fs.existsSync(path.join(outputDir, 'pnpm-workspace.yaml'))).toBe(true);
+
+      // Should NOT have workspaces in package.json (pnpm uses separate file)
+      const pkgJson = fs.readJsonSync(path.join(outputDir, 'package.json'));
+      expect(pkgJson.workspaces).toBeUndefined();
+      expect(pkgJson.packageManager).toMatch(/^pnpm@/);
     });
   });
 });

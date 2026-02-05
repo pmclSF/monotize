@@ -80,6 +80,7 @@ async function getAvailableDiskSpace(dirPath: string): Promise<number | null> {
 export async function checkPrerequisites(options: {
   outputDir: string;
   needsPnpm?: boolean;
+  packageManager?: string;
 }): Promise<PrerequisitesResult> {
   const errors: string[] = [];
   const warnings: string[] = [];
@@ -91,11 +92,21 @@ export async function checkPrerequisites(options: {
     );
   }
 
-  // Check pnpm is installed (if needed)
-  if (options.needsPnpm && !commandExists('pnpm')) {
-    errors.push(
-      'pnpm is not installed. Install with: npm install -g pnpm'
-    );
+  // Check package manager is installed
+  const pm = options.packageManager || (options.needsPnpm ? 'pnpm' : undefined);
+  if (pm) {
+    const pmCommand = pm === 'yarn-berry' ? 'yarn' : pm;
+    if (!commandExists(pmCommand)) {
+      const installInstructions: Record<string, string> = {
+        pnpm: 'Install with: npm install -g pnpm',
+        yarn: 'Install with: npm install -g yarn',
+        'yarn-berry': 'Install with: npm install -g yarn',
+        npm: 'npm should be installed with Node.js',
+      };
+      errors.push(
+        `${pmCommand} is not installed. ${installInstructions[pm] || ''}`
+      );
+    }
   }
 
   // Check temp directory is writable

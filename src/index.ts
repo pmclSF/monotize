@@ -25,9 +25,15 @@ program
     'prompt'
   )
   .option('-v, --verbose', 'Verbose output')
-  .option('--no-install', 'Skip running pnpm install')
+  .option('--no-install', 'Skip running package install')
   .option('--no-hoist', 'Keep dependencies in each package (prevents type conflicts)')
   .option('--pin-versions', 'Pin dependency versions by removing ^ and ~ ranges')
+  .option(
+    '--package-manager <pm>',
+    'Package manager to use (pnpm, yarn, yarn-berry, npm)',
+    'pnpm'
+  )
+  .option('--auto-detect-pm', 'Auto-detect package manager from source repos')
   // Phase 2 options
   .option('--preserve-history', 'Preserve git commit history from source repos')
   .option(
@@ -51,6 +57,11 @@ program
     '--workspace-tool <tool>',
     'Workspace tool to configure (turbo, nx, none)',
     'none'
+  )
+  .option(
+    '--package-manager <pm>',
+    'Package manager to use (pnpm, yarn, yarn-berry, npm)',
+    'pnpm'
   )
   .option('--no-git', 'Skip git initialization')
   .option('-v, --verbose', 'Verbose output')

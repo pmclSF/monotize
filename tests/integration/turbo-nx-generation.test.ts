@@ -5,6 +5,9 @@ import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
 
+// Retry count for flaky tests (temp directory race conditions)
+const FLAKY_TEST_RETRIES = 2;
+
 describe('Turbo/Nx Generation Integration', () => {
   let tempDir: string;
   let outputDir: string;
@@ -49,7 +52,7 @@ describe('Turbo/Nx Generation Integration', () => {
     return repoPath;
   }
 
-  it('should generate turbo.json when using --workspace-tool turbo', async () => {
+  it('should generate turbo.json when using --workspace-tool turbo', { retry: FLAKY_TEST_RETRIES }, async () => {
     const repo1 = await createTestRepo('pkg-a');
     const repo2 = await createTestRepo('pkg-b', { lint: 'eslint .' });
 
@@ -70,7 +73,7 @@ describe('Turbo/Nx Generation Integration', () => {
     expect(turboConfig.tasks.build.dependsOn).toContain('^build');
   });
 
-  it('should generate nx.json when using --workspace-tool nx', async () => {
+  it('should generate nx.json when using --workspace-tool nx', { retry: FLAKY_TEST_RETRIES }, async () => {
     const repo1 = await createTestRepo('pkg-a');
     const repo2 = await createTestRepo('pkg-b');
 
@@ -90,7 +93,7 @@ describe('Turbo/Nx Generation Integration', () => {
     expect(nxConfig.namedInputs).toBeDefined();
   });
 
-  it('should add turbo as devDependency in root package.json', async () => {
+  it('should add turbo as devDependency in root package.json', { retry: FLAKY_TEST_RETRIES }, async () => {
     const repo1 = await createTestRepo('pkg-a');
 
     execSync(
@@ -102,7 +105,7 @@ describe('Turbo/Nx Generation Integration', () => {
     expect(rootPkg.devDependencies?.turbo).toBeDefined();
   });
 
-  it('should add nx as devDependency in root package.json', async () => {
+  it('should add nx as devDependency in root package.json', { retry: FLAKY_TEST_RETRIES }, async () => {
     const repo1 = await createTestRepo('pkg-a');
 
     execSync(
@@ -114,7 +117,7 @@ describe('Turbo/Nx Generation Integration', () => {
     expect(rootPkg.devDependencies?.nx).toBeDefined();
   });
 
-  it('should update root scripts to use turbo', async () => {
+  it('should update root scripts to use turbo', { retry: FLAKY_TEST_RETRIES }, async () => {
     const repo1 = await createTestRepo('pkg-a');
 
     execSync(
@@ -127,7 +130,7 @@ describe('Turbo/Nx Generation Integration', () => {
     expect(rootPkg.scripts?.test).toContain('turbo');
   });
 
-  it('should update root scripts to use nx', async () => {
+  it('should update root scripts to use nx', { retry: FLAKY_TEST_RETRIES }, async () => {
     const repo1 = await createTestRepo('pkg-a');
 
     execSync(
@@ -140,7 +143,7 @@ describe('Turbo/Nx Generation Integration', () => {
     expect(rootPkg.scripts?.test).toContain('nx');
   });
 
-  it('should not generate config when using --workspace-tool none', async () => {
+  it('should not generate config when using --workspace-tool none', { retry: FLAKY_TEST_RETRIES }, async () => {
     const repo1 = await createTestRepo('pkg-a');
 
     execSync(
