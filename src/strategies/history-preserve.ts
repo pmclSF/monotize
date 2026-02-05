@@ -2,7 +2,7 @@ import { execSync, exec } from 'node:child_process';
 import { promisify } from 'node:util';
 import path from 'node:path';
 import type { HistoryPreserveOptions } from '../types/index.js';
-import { ensureDir, pathExists, copyDir } from '../utils/fs.js';
+import { ensureDir, copyDir } from '../utils/fs.js';
 
 const execAsync = promisify(exec);
 

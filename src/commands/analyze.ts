@@ -1,4 +1,3 @@
-import path from 'node:path';
 import chalk from 'chalk';
 import type {
   AnalyzeResult,

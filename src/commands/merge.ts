@@ -36,7 +36,6 @@ import {
 import {
   generateWorkspaceConfig,
   generatePnpmWorkspaceYaml,
-  detectCrossDependencies,
 } from '../strategies/workspace-config.js';
 import {
   generateWorkspaceToolConfig,

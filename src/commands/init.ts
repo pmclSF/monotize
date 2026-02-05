@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { execSync } from 'node:child_process';
-import type { InitOptions, WorkspaceTool } from '../types/index.js';
+import type { WorkspaceTool } from '../types/index.js';
 import { createLogger } from '../utils/logger.js';
 import { ensureDir, writeFile, writeJson, pathExists } from '../utils/fs.js';
 import {

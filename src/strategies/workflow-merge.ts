@@ -1,5 +1,5 @@
 import path from 'node:path';
-import type { WorkflowMergeOptions, WorkflowMergeStrategy } from '../types/index.js';
+import type { WorkflowMergeOptions } from '../types/index.js';
 import { pathExists, readFile, writeFile, ensureDir, listFiles } from '../utils/fs.js';
 
 /**
