@@ -1,0 +1,14 @@
+{
+  "name": "wildcard-deps",
+  "version": "1.0.0",
+  "dependencies": {
+    "any-version": "*",
+    "x-version": "x",
+    "major-wildcard": "1.x",
+    "minor-wildcard": "1.2.x",
+    "range-gte-lt": ">=1.0.0 <2.0.0",
+    "hyphen-range": "1.0.0 - 2.0.0",
+    "or-range": "^1.0.0 || ^2.0.0",
+    "tilde-range": "~1.2.3"
+  }
+}

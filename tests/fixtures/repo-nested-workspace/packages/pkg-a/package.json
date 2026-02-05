@@ -1,0 +1,7 @@
+{
+  "name": "@monorepo/pkg-a",
+  "version": "1.0.0",
+  "dependencies": {
+    "@monorepo/pkg-b": "workspace:*"
+  }
+}

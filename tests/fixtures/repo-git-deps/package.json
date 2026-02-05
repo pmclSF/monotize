@@ -1,0 +1,17 @@
+{
+  "name": "git-deps",
+  "version": "1.0.0",
+  "dependencies": {
+    "git-https": "git+https://github.com/user/repo.git",
+    "git-ssh": "git+ssh://git@github.com/user/repo.git",
+    "github-shorthand": "github:user/repo",
+    "gitlab-shorthand": "gitlab:user/repo",
+    "bitbucket": "bitbucket:user/repo",
+    "file-dep": "file:../local-pkg",
+    "link-dep": "link:../linked-pkg",
+    "npm-alias": "npm:other-package@^1.0.0",
+    "url-tarball": "https://example.com/package.tgz",
+    "git-branch": "git+https://github.com/user/repo.git#branch",
+    "git-commit": "git+https://github.com/user/repo.git#abc1234"
+  }
+}

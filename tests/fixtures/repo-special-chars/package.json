@@ -1,0 +1,6 @@
+{
+  "name": "special-chars-package",
+  "version": "1.0.0",
+  "description": "Package with unicode: éàü 中文 😀",
+  "author": "Tëst Àuthör <test@example.com>"
+}

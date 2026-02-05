@@ -1,6 +1,134 @@
 import path from 'node:path';
+import { execSync } from 'node:child_process';
+import os from 'node:os';
+import fs from 'fs-extra';
 import type { RepoSource, RepoSourceType, ValidationResult } from '../types/index.js';
 import { isDirectory, pathExists } from './fs.js';
+
+/**
+ * Result of prerequisites check
+ */
+export interface PrerequisitesResult {
+  valid: boolean;
+  errors: string[];
+  warnings: string[];
+}
+
+/**
+ * Check if a command exists on the system
+ */
+function commandExists(command: string): boolean {
+  try {
+    const whichCmd = process.platform === 'win32' ? 'where' : 'which';
+    execSync(`${whichCmd} ${command}`, { stdio: 'pipe' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Check if a directory is writable
+ */
+async function isWritable(dirPath: string): Promise<boolean> {
+  try {
+    // For existing directories, check write access
+    if (await fs.pathExists(dirPath)) {
+      await fs.access(dirPath, fs.constants.W_OK);
+      return true;
+    }
+
+    // For non-existing directories, check if parent is writable
+    const parent = path.dirname(dirPath);
+    if (await fs.pathExists(parent)) {
+      await fs.access(parent, fs.constants.W_OK);
+      return true;
+    }
+
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Get available disk space in bytes (approximate)
+ */
+async function getAvailableDiskSpace(dirPath: string): Promise<number | null> {
+  try {
+    // Use df command on Unix systems
+    if (process.platform !== 'win32') {
+      const targetDir = (await fs.pathExists(dirPath)) ? dirPath : path.dirname(dirPath);
+      const output = execSync(`df -k "${targetDir}" | tail -1 | awk '{print $4}'`, {
+        stdio: 'pipe',
+        encoding: 'utf-8',
+      });
+      const kbytes = parseInt(output.trim(), 10);
+      return kbytes * 1024; // Convert to bytes
+    }
+
+    // For Windows, return null (check not implemented)
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Check prerequisites for running the merge command
+ */
+export async function checkPrerequisites(options: {
+  outputDir: string;
+  needsPnpm?: boolean;
+}): Promise<PrerequisitesResult> {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+
+  // Check git is installed
+  if (!commandExists('git')) {
+    errors.push(
+      'Git is not installed. Install from https://git-scm.com/ or via your package manager.'
+    );
+  }
+
+  // Check pnpm is installed (if needed)
+  if (options.needsPnpm && !commandExists('pnpm')) {
+    errors.push(
+      'pnpm is not installed. Install with: npm install -g pnpm'
+    );
+  }
+
+  // Check temp directory is writable
+  const tempDir = os.tmpdir();
+  if (!(await isWritable(tempDir))) {
+    errors.push(
+      `Temp directory is not writable: ${tempDir}`
+    );
+  }
+
+  // Check output directory (or parent) is writable
+  if (!(await isWritable(options.outputDir))) {
+    const parent = path.dirname(options.outputDir);
+    errors.push(
+      `Output directory is not writable: ${options.outputDir}. Check permissions on ${parent}`
+    );
+  }
+
+  // Check available disk space (warn if less than 500MB)
+  const availableSpace = await getAvailableDiskSpace(options.outputDir);
+  if (availableSpace !== null && availableSpace < 500 * 1024 * 1024) {
+    const mbAvailable = Math.round(availableSpace / (1024 * 1024));
+    warnings.push(
+      `Low disk space: only ${mbAvailable}MB available. Consider freeing up space.`
+    );
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+    warnings,
+  };
+}
 
 /**
  * GitHub shorthand pattern: owner/repo

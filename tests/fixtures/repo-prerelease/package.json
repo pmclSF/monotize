@@ -1,0 +1,12 @@
+{
+  "name": "prerelease",
+  "version": "1.0.0-alpha.1",
+  "dependencies": {
+    "alpha-dep": "^1.0.0-alpha.1",
+    "beta-dep": "^2.0.0-beta.2",
+    "rc-dep": "3.0.0-rc.1",
+    "canary-dep": "4.0.0-canary.12345",
+    "prerelease-with-build": "1.0.0-alpha+build.123",
+    "prerelease-range": ">=1.0.0-alpha <1.0.0"
+  }
+}

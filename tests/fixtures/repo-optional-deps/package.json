@@ -1,0 +1,22 @@
+{
+  "name": "optional-deps",
+  "version": "1.0.0",
+  "dependencies": {
+    "required-dep": "^1.0.0"
+  },
+  "devDependencies": {
+    "dev-dep": "^2.0.0"
+  },
+  "optionalDependencies": {
+    "optional-native": "^3.0.0",
+    "optional-platform": "^4.0.0"
+  },
+  "peerDependencies": {
+    "peer-framework": "^16.0.0 || ^17.0.0 || ^18.0.0"
+  },
+  "peerDependenciesMeta": {
+    "peer-framework": {
+      "optional": true
+    }
+  }
+}
