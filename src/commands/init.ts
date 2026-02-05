@@ -1,6 +1,18 @@
 import path from 'node:path';
 import { execSync } from 'node:child_process';
 import type { WorkspaceTool } from '../types/index.js';
+
+/**
+ * Get the installed pnpm version for packageManager field
+ */
+function getPnpmVersion(): string {
+  try {
+    const version = execSync('pnpm --version', { encoding: 'utf-8' }).trim();
+    return version;
+  } catch {
+    return '9.0.0'; // Default fallback
+  }
+}
 import { createLogger } from '../utils/logger.js';
 import { ensureDir, writeFile, writeJson, pathExists } from '../utils/fs.js';
 import {
@@ -56,6 +68,7 @@ function generateRootPackageJson(
     version: '0.0.0',
     private: true,
     type: 'module',
+    packageManager: `pnpm@${getPnpmVersion()}`,
     scripts,
     engines: {
       node: '>=18',

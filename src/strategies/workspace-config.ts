@@ -1,4 +1,17 @@
+import { execSync } from 'node:child_process';
 import type { PackageInfo, WorkspaceConfig, CrossDependency } from '../types/index.js';
+
+/**
+ * Get the installed pnpm version for packageManager field
+ */
+function getPnpmVersion(): string {
+  try {
+    const version = execSync('pnpm --version', { encoding: 'utf-8' }).trim();
+    return version;
+  } catch {
+    return '9.0.0'; // Default fallback
+  }
+}
 
 /**
  * Options for generating workspace configuration
@@ -59,6 +72,7 @@ export function generateWorkspaceConfig(
     version: '0.0.0',
     private: true,
     type: 'module',
+    packageManager: `pnpm@${getPnpmVersion()}`,
     scripts: aggregateScripts(packages, packagesDir),
     dependencies: Object.keys(dependencies).length > 0 ? dependencies : undefined,
     devDependencies: Object.keys(devDependencies).length > 0 ? devDependencies : undefined,

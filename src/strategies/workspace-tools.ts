@@ -57,6 +57,17 @@ function getAvailableScripts(packages: PackageInfo[]): string[] {
 }
 
 /**
+ * Filter dependencies to only include scripts that actually exist
+ */
+function filterDependencies(deps: string[], availableScripts: string[]): string[] {
+  return deps.filter((dep) => {
+    // Handle ^dependency syntax (e.g., ^build means dependency's build)
+    const scriptName = dep.startsWith('^') ? dep.slice(1) : dep;
+    return availableScripts.includes(scriptName);
+  });
+}
+
+/**
  * Generate Turborepo configuration
  */
 export function generateTurboConfig(packages: PackageInfo[]): TurboConfig {
@@ -71,10 +82,13 @@ export function generateTurboConfig(packages: PackageInfo[]): TurboConfig {
 
     const task: TurboTask = {};
 
-    // Add dependencies
+    // Add dependencies - but only if those scripts actually exist
     const deps = SCRIPT_DEPENDENCIES[script];
     if (deps && deps.length > 0) {
-      task.dependsOn = deps;
+      const filteredDeps = filterDependencies(deps, availableScripts);
+      if (filteredDeps.length > 0) {
+        task.dependsOn = filteredDeps;
+      }
     }
 
     // Add outputs for caching
@@ -118,16 +132,19 @@ export function generateNxConfig(packages: PackageInfo[]): NxConfig {
 
     const target: NxTargetDefault = {};
 
-    // Add dependencies (Nx uses different syntax)
+    // Add dependencies - but only if those scripts actually exist
     const deps = SCRIPT_DEPENDENCIES[script];
     if (deps && deps.length > 0) {
-      // Convert Turbo syntax to Nx syntax
-      target.dependsOn = deps.map((dep) => {
-        if (dep.startsWith('^')) {
-          return `^${dep.slice(1)}`; // Nx uses same syntax for dependencies
-        }
-        return dep;
-      });
+      const filteredDeps = filterDependencies(deps, availableScripts);
+      if (filteredDeps.length > 0) {
+        // Convert Turbo syntax to Nx syntax
+        target.dependsOn = filteredDeps.map((dep) => {
+          if (dep.startsWith('^')) {
+            return `^${dep.slice(1)}`; // Nx uses same syntax for dependencies
+          }
+          return dep;
+        });
+      }
     }
 
     // Add outputs for caching
