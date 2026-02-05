@@ -24,8 +24,9 @@ describe('analyze command E2E', () => {
   ): Promise<string> {
     const repoPath = path.join(tempDir, name);
     await fs.ensureDir(repoPath);
+    const pkgJsonPath = path.join(repoPath, 'package.json');
     await fs.writeJson(
-      path.join(repoPath, 'package.json'),
+      pkgJsonPath,
       {
         name,
         version: '1.0.0',
@@ -38,6 +39,11 @@ describe('analyze command E2E', () => {
       },
       { spaces: 2 }
     );
+    // Verify file exists before proceeding
+    if (!(await fs.pathExists(pkgJsonPath))) {
+      throw new Error(`Failed to create ${pkgJsonPath}`);
+    }
+
     await fs.ensureDir(path.join(repoPath, 'src'));
     await fs.writeFile(
       path.join(repoPath, 'src', 'index.ts'),
