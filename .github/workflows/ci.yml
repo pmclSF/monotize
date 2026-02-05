@@ -7,9 +7,52 @@ on:
     branches: [main]
 
 jobs:
+  safety-check:
+    name: Safety Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check for dangerous patterns
+        run: |
+          echo "Checking for potentially dangerous patterns..."
+
+          # Check for eval() usage (potential code injection)
+          if grep -r "eval(" --include="*.ts" --include="*.js" src/; then
+            echo "::warning::Found eval() usage - review for security"
+          fi
+
+          # Check for shell command injection risks
+          if grep -rE "exec(Sync)?\s*\(\s*[^'\"]\s*\+" --include="*.ts" --include="*.js" src/; then
+            echo "::warning::Found potential command injection - review string concatenation in exec calls"
+          fi
+
+          # Check for hardcoded secrets patterns
+          if grep -rE "(password|secret|api_key|apikey|token)\s*[:=]\s*['\"][^'\"]+['\"]" --include="*.ts" --include="*.js" -i src/; then
+            echo "::error::Found potential hardcoded secrets"
+            exit 1
+          fi
+
+          echo "Safety check completed"
+
+      - name: Check for sensitive files
+        run: |
+          # Ensure no sensitive files are committed
+          SENSITIVE_FILES=".env .env.local .env.*.local *.pem *.key credentials.json"
+          for pattern in $SENSITIVE_FILES; do
+            if ls $pattern 2>/dev/null; then
+              echo "::error::Sensitive file found: $pattern"
+              exit 1
+            fi
+          done
+          echo "No sensitive files found"
+
   test:
     name: Test (Node ${{ matrix.node-version }})
     runs-on: ubuntu-latest
+    needs: safety-check
     strategy:
       matrix:
         node-version: [18, 20, 22]
