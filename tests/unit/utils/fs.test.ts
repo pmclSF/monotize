@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import path from 'node:path';
 import fs from 'fs-extra';
 import os from 'node:os';
+import crypto from 'node:crypto';
 import {
   ensureDir,
   copyDir,
@@ -22,8 +23,9 @@ describe('File System Utilities', () => {
   let testDir: string;
 
   beforeEach(async () => {
-    // Create a unique temp directory for each test
-    testDir = path.join(os.tmpdir(), `fs-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    // Create a unique temp directory for each test using crypto for secure randomness
+    const uniqueId = crypto.randomBytes(16).toString('hex');
+    testDir = path.join(os.tmpdir(), `fs-test-${uniqueId}`);
     await fs.ensureDir(testDir);
   });
 
