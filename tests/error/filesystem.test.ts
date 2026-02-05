@@ -1,7 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import path from 'node:path';
 import fs from 'fs-extra';
 import os from 'node:os';
+import crypto from 'node:crypto';
 import {
   ensureDir,
   copyDir,
@@ -12,13 +13,13 @@ import {
   readFile,
   writeFile,
 } from '../../src/utils/fs.js';
-import { createTempFixture, cleanupFixtures } from '../helpers/fixtures.js';
+import { cleanupFixtures } from '../helpers/fixtures.js';
 
 describe('Filesystem Error Scenarios', () => {
   let testDir: string;
 
   beforeEach(async () => {
-    testDir = path.join(os.tmpdir(), `fs-error-test-${Date.now()}`);
+    testDir = path.join(os.tmpdir(), `fs-error-test-${crypto.randomBytes(8).toString('hex')}`);
     await fs.ensureDir(testDir);
   });
 

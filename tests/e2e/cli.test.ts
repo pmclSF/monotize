@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { execSync, spawn } from 'node:child_process';
+import { execSync } from 'node:child_process';
 import path from 'node:path';
 import fs from 'fs-extra';
 import os from 'node:os';
+import crypto from 'node:crypto';
 
 const CLI_PATH = path.join(__dirname, '../../bin/monorepo.js');
 const FIXTURES_PATH = path.join(__dirname, '../fixtures');
@@ -11,7 +12,7 @@ describe('CLI End-to-End Tests', () => {
   let testOutputDir: string;
 
   beforeEach(async () => {
-    testOutputDir = path.join(os.tmpdir(), `cli-test-${Date.now()}`);
+    testOutputDir = path.join(os.tmpdir(), `cli-test-${crypto.randomBytes(8).toString('hex')}`);
     await fs.ensureDir(testOutputDir);
   });
 
