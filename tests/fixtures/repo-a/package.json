@@ -1,0 +1,17 @@
+{
+  "name": "repo-a",
+  "version": "1.0.0",
+  "description": "Test repository A",
+  "type": "module",
+  "scripts": {
+    "build": "echo 'Building repo-a'",
+    "test": "echo 'Testing repo-a'"
+  },
+  "dependencies": {
+    "lodash": "^4.17.21",
+    "axios": "^1.6.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.0"
+  }
+}
