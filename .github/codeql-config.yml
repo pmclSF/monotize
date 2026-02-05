@@ -1,0 +1,10 @@
+name: "CodeQL config"
+
+# Only run security queries, skip code quality checks that flag test patterns
+queries:
+  - uses: security-extended
+
+paths-ignore:
+  - tests/**
+  - '**/*.test.ts'
+  - '**/*.spec.ts'
