@@ -1,0 +1,13 @@
+{
+  "name": "@myorg/scoped-package",
+  "version": "1.0.0",
+  "dependencies": {
+    "@types/node": "^20.0.0",
+    "@babel/core": "^7.0.0",
+    "@emotion/react": "^11.0.0"
+  },
+  "devDependencies": {
+    "@typescript-eslint/parser": "^6.0.0",
+    "@testing-library/react": "^14.0.0"
+  }
+}

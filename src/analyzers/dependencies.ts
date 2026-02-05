@@ -8,17 +8,69 @@ import type {
 import { pathExists, readJson } from '../utils/fs.js';
 
 /**
+ * Patterns for non-semver version specifiers
+ */
+const NON_SEMVER_PATTERNS = [
+  /^git\+/,           // git+https://, git+ssh://
+  /^github:/,         // github:user/repo
+  /^gitlab:/,         // gitlab:user/repo
+  /^bitbucket:/,      // bitbucket:user/repo
+  /^file:/,           // file:../path
+  /^link:/,           // link:../path
+  /^npm:/,            // npm:package@version
+  /^https?:\/\//,     // URL tarball
+  /^workspace:/,      // workspace:*
+];
+
+/**
+ * Check if a version string is a non-semver specifier (git, file, URL, etc.)
+ */
+export function isNonSemverVersion(version: string): boolean {
+  return NON_SEMVER_PATTERNS.some((pattern) => pattern.test(version));
+}
+
+/**
+ * Check if a version is a wildcard (*, x, or major.x patterns)
+ */
+export function isWildcardVersion(version: string): boolean {
+  const trimmed = version.trim();
+  return (
+    trimmed === '*' ||
+    trimmed === 'x' ||
+    /^\d+\.x$/.test(trimmed) ||
+    /^\d+\.\d+\.x$/.test(trimmed)
+  );
+}
+
+/**
  * Parse a semver version string into components
  */
-function parseSemver(version: string): { major: number; minor: number; patch: number } | null {
-  // Remove leading ^ or ~ or =
-  const cleaned = version.replace(/^[\^~=]/, '');
-  const match = cleaned.match(/^(\d+)\.(\d+)\.(\d+)/);
+function parseSemver(version: string): { major: number; minor: number; patch: number; prerelease?: string } | null {
+  // Skip non-semver versions
+  if (isNonSemverVersion(version)) {
+    return null;
+  }
+
+  // Skip wildcards
+  if (isWildcardVersion(version)) {
+    return null;
+  }
+
+  // Remove leading ^, ~, =, >=, <=, <, >
+  const cleaned = version.replace(/^[\^~=><]+/, '').replace(/^>=|<=|>|</, '');
+
+  // Handle range patterns - take the first version in the range
+  const firstVersion = cleaned.split(/\s+/)[0];
+
+  // Standard semver pattern with optional pre-release
+  const match = firstVersion.match(/^(\d+)\.(\d+)\.(\d+)(?:-([a-zA-Z0-9.+-]+))?/);
   if (!match) return null;
+
   return {
     major: parseInt(match[1], 10),
     minor: parseInt(match[2], 10),
     patch: parseInt(match[3], 10),
+    prerelease: match[4],
   };
 }
 
@@ -30,28 +82,46 @@ function compareSemver(a: string, b: string): number {
   const parsedA = parseSemver(a);
   const parsedB = parseSemver(b);
 
-  if (!parsedA || !parsedB) {
-    // Fall back to string comparison
+  // If one or both are not parseable, fall back to string comparison
+  if (!parsedA && !parsedB) {
     return a.localeCompare(b);
   }
+  if (!parsedA) return -1; // Non-semver goes first (lower priority)
+  if (!parsedB) return 1;
 
+  // Compare major.minor.patch
   if (parsedA.major !== parsedB.major) {
     return parsedA.major - parsedB.major;
   }
   if (parsedA.minor !== parsedB.minor) {
     return parsedA.minor - parsedB.minor;
   }
-  return parsedA.patch - parsedB.patch;
+  if (parsedA.patch !== parsedB.patch) {
+    return parsedA.patch - parsedB.patch;
+  }
+
+  // Handle pre-release (versions without pre-release are higher)
+  if (parsedA.prerelease && !parsedB.prerelease) return -1;
+  if (!parsedA.prerelease && parsedB.prerelease) return 1;
+  if (parsedA.prerelease && parsedB.prerelease) {
+    return parsedA.prerelease.localeCompare(parsedB.prerelease);
+  }
+
+  return 0;
 }
 
 /**
  * Determine the severity of a version conflict
  */
 function determineConflictSeverity(versions: string[]): ConflictSeverity {
-  const parsed = versions.map(parseSemver).filter((v): v is NonNullable<typeof v> => v !== null);
+  const parsed = versions
+    .map(parseSemver)
+    .filter((v): v is NonNullable<typeof v> => v !== null);
 
   if (parsed.length < 2) {
-    return 'minor';
+    // Not enough parseable versions to determine severity
+    // Could be mixed semver/non-semver
+    return 'major';
   }
 
   const majors = new Set(parsed.map((v) => v.major));
@@ -91,6 +161,7 @@ async function readPackageJson(repoPath: string, repoName: string): Promise<Pack
       repoName,
     };
   } catch {
+    // Malformed JSON or read error
     return null;
   }
 }
@@ -111,12 +182,24 @@ async function findPackages(repoPath: string, repoName: string): Promise<Package
 }
 
 /**
+ * Warnings about non-standard versions
+ */
+export interface DependencyWarning {
+  name: string;
+  version: string;
+  source: string;
+  type: 'git' | 'file' | 'url' | 'wildcard' | 'prerelease';
+  message: string;
+}
+
+/**
  * Analyze dependencies across multiple repositories
  */
 export async function analyzeDependencies(
   repoPaths: Array<{ path: string; name: string }>
-): Promise<DependencyAnalysis> {
+): Promise<DependencyAnalysis & { warnings?: DependencyWarning[] }> {
   const allPackages: PackageInfo[] = [];
+  const warnings: DependencyWarning[] = [];
 
   // Collect all packages from all repos
   for (const repo of repoPaths) {
@@ -139,6 +222,31 @@ export async function analyzeDependencies(
 
     for (const { deps, type } of depTypes) {
       for (const [name, version] of Object.entries(deps)) {
+        // Track warnings for non-standard versions
+        if (isNonSemverVersion(version)) {
+          let versionType: DependencyWarning['type'] = 'url';
+          if (/^git\+|^github:|^gitlab:|^bitbucket:/.test(version)) {
+            versionType = 'git';
+          } else if (/^file:|^link:/.test(version)) {
+            versionType = 'file';
+          }
+          warnings.push({
+            name,
+            version,
+            source: pkg.repoName,
+            type: versionType,
+            message: `Non-semver dependency "${name}": ${version} in ${pkg.repoName}`,
+          });
+        } else if (isWildcardVersion(version)) {
+          warnings.push({
+            name,
+            version,
+            source: pkg.repoName,
+            type: 'wildcard',
+            message: `Wildcard version for "${name}": ${version} in ${pkg.repoName}`,
+          });
+        }
+
         const existing = depGroups.get(name) || [];
         existing.push({ version, source: pkg.repoName, type });
         depGroups.set(name, existing);
@@ -191,6 +299,7 @@ export async function analyzeDependencies(
     conflicts,
     resolvedDependencies,
     resolvedDevDependencies,
+    warnings: warnings.length > 0 ? warnings : undefined,
   };
 }
 

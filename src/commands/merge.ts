@@ -134,11 +134,16 @@ export async function mergeCommand(repos: string[], options: CLIOptions): Promis
     install: options.install,
   };
 
-  // Handle SIGINT for graceful termination
+  // Robust cleanup function - doesn't throw on failure
   const cleanup = async () => {
     if (tempDir) {
-      logger.debug(`Cleaning up temp directory: ${tempDir}`);
-      await removeDir(tempDir);
+      try {
+        logger.debug(`Cleaning up temp directory: ${tempDir}`);
+        await removeDir(tempDir);
+      } catch (error) {
+        // Log warning but don't throw - cleanup failure shouldn't mask original error
+        logger.warn(`Failed to cleanup temp directory ${tempDir}: ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
   };
 
