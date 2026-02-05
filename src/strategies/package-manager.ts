@@ -1,7 +1,7 @@
 import { execSync } from 'node:child_process';
 import path from 'node:path';
-import type { PackageManagerType, PackageManagerConfig, RepoSource } from '../types/index.js';
-import { pathExists, readFile } from '../utils/fs.js';
+import type { PackageManagerType, PackageManagerConfig } from '../types/index.js';
+import { pathExists } from '../utils/fs.js';
 
 /**
  * Get the installed version of a package manager

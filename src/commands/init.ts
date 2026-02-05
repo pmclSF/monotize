@@ -1,12 +1,11 @@
 import path from 'node:path';
 import { execSync } from 'node:child_process';
-import type { WorkspaceTool, PackageManagerType, PackageManagerConfig } from '../types/index.js';
+import type { WorkspaceTool, PackageManagerConfig } from '../types/index.js';
 import { createLogger } from '../utils/logger.js';
 import { ensureDir, writeFile, writeJson, pathExists } from '../utils/fs.js';
 import {
   generateWorkspaceToolConfig,
   getWorkspaceToolDependencies,
-  getWorkspaceToolRunCommand,
 } from '../strategies/workspace-tools.js';
 import {
   createPackageManagerConfig,
