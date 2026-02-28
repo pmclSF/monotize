@@ -288,6 +288,81 @@ export async function preserveHistory(
 }
 
 /**
+ * Check all prerequisites for history preservation.
+ * Returns ok:true if all checks pass, or a list of issues.
+ */
+export async function checkHistoryPrerequisites(
+  repoPath: string,
+): Promise<{ ok: boolean; issues: string[] }> {
+  const issues: string[] = [];
+
+  // Check git is available
+  try {
+    execFileSync('which', ['git'], { stdio: 'pipe' });
+  } catch {
+    issues.push('git is not installed or not on PATH');
+  }
+
+  // Check source is a git repo
+  if (!(await isGitRepo(repoPath))) {
+    issues.push(`${repoPath} is not a git repository`);
+    return { ok: false, issues };
+  }
+
+  // Check for shallow clone
+  try {
+    const result = execFileSync('git', ['rev-parse', '--is-shallow-repository'], {
+      cwd: repoPath,
+      encoding: 'utf-8',
+    });
+    if (result.trim() === 'true') {
+      issues.push('Repository is a shallow clone. Run `git fetch --unshallow` first.');
+    }
+  } catch {
+    // Older git versions don't support this flag, skip
+  }
+
+  // Check git-filter-repo availability
+  const hasFilterRepo = await checkGitFilterRepo();
+  if (!hasFilterRepo) {
+    issues.push('git-filter-repo is not installed (will fall back to git subtree)');
+  }
+
+  return { ok: issues.length === 0, issues };
+}
+
+/**
+ * Generate a dry-run report for history preservation.
+ * Shows commit count, contributors, and estimated time without making changes.
+ */
+export async function historyDryRun(
+  repoPath: string,
+  _targetDir: string,
+): Promise<{
+  commitCount: number;
+  contributors: string[];
+  estimatedSeconds: number;
+  hasFilterRepo: boolean;
+  strategy: 'filter-repo' | 'subtree';
+}> {
+  const commitCount = await getCommitCount(repoPath);
+  const contributors = await getContributors(repoPath);
+  const hasFilterRepo = await checkGitFilterRepo();
+
+  // Rough estimate: ~0.5s per commit for filter-repo, ~0.2s for subtree
+  const secondsPerCommit = hasFilterRepo ? 0.5 : 0.2;
+  const estimatedSeconds = Math.max(1, Math.ceil(commitCount * secondsPerCommit));
+
+  return {
+    commitCount,
+    contributors,
+    estimatedSeconds,
+    hasFilterRepo,
+    strategy: hasFilterRepo ? 'filter-repo' : 'subtree',
+  };
+}
+
+/**
  * Get the commit count for a repository
  */
 export async function getCommitCount(repoPath: string): Promise<number> {

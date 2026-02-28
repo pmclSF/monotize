@@ -62,6 +62,72 @@ export function OperatePage({ steps, repos, options }: OperatePageProps) {
         </tbody>
       </table>
 
+      <h3>Completion Summary</h3>
+      <div style={{
+        padding: '1rem',
+        border: '1px solid var(--border, #ddd)',
+        borderRadius: 6,
+        marginBottom: '1rem',
+        background: 'var(--bg-muted, #f9f9f9)',
+      }}>
+        <p style={{ margin: '0 0 0.5rem 0' }}>
+          <strong>{completed}</strong> step{completed !== 1 ? 's' : ''} completed,{' '}
+          <strong>{skipped}</strong> skipped,{' '}
+          <strong>{pending}</strong> remaining.
+        </p>
+        {skipped > 0 && (
+          <div style={{ marginTop: 8 }}>
+            <strong>Skipped steps:</strong>
+            <ul style={{ margin: '4px 0 0 0', paddingLeft: 20 }}>
+              {steps.filter((s) => s.status === 'skipped').map((s) => (
+                <li key={s.id}>
+                  {s.id}{s.skipRationale ? ` — ${s.skipRationale}` : ''}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+
+      <h3>Next Steps</h3>
+      <div style={{
+        padding: '1rem',
+        border: '1px solid var(--border, #ddd)',
+        borderRadius: 6,
+        marginBottom: '1rem',
+      }}>
+        <p style={{ margin: '0 0 0.75rem 0' }}>
+          Re-run verification to confirm the monorepo is healthy:
+        </p>
+        <button
+          className="primary"
+          onClick={() => window.location.hash = '#verify'}
+          style={{ marginRight: 8 }}
+        >
+          Re-run Verify
+        </button>
+        <span style={{ color: 'var(--text-muted, #888)', fontSize: '0.85rem' }}>
+          or run <code>monorepo verify --dir {options.outputDir}</code>
+        </span>
+      </div>
+
+      <h3>Add Repository</h3>
+      <div style={{
+        padding: '1rem',
+        border: '1px dashed var(--border, #ccc)',
+        borderRadius: 6,
+        marginBottom: '1rem',
+        color: 'var(--text-muted, #888)',
+      }}>
+        <p style={{ margin: '0 0 0.5rem 0' }}>
+          Need to add another repository to the monorepo?
+        </p>
+        <p style={{ margin: 0, fontSize: '0.85rem' }}>
+          Use <code>monorepo add &lt;repo&gt; --to {options.outputDir}</code> to add
+          repositories incrementally. A guided wizard for this workflow is coming soon.
+        </p>
+      </div>
+
       <div className="step-actions" style={{ marginTop: '1rem' }}>
         <ExportButton data={summaryData} filename="migration-summary.json" />
       </div>

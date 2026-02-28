@@ -4,6 +4,7 @@ import type {
   CircularDependency,
   CrossDependency,
   DependencyConflict,
+  ExtendedAnalysis,
   FileCollision,
   PackageInfo,
 } from '../types/index.js';
@@ -13,6 +14,12 @@ import { validateRepoSources } from '../utils/validation.js';
 import { analyzeDependencies } from '../analyzers/dependencies.js';
 import { detectFileCollisions } from '../analyzers/files.js';
 import { detectCircularDependencies, computeHotspots } from '../analyzers/graph.js';
+import { analyzeEnvironment } from '../analyzers/environment.js';
+import { analyzeTooling } from '../analyzers/tooling.js';
+import { analyzeCI } from '../analyzers/ci.js';
+import { analyzePublishing } from '../analyzers/publishing.js';
+import { analyzeRepoRisks } from '../analyzers/repo-risks.js';
+import { classifyRisk } from '../analyzers/risk-summary.js';
 import { cloneOrCopyRepos } from '../strategies/copy.js';
 import { getConflictSummary } from '../resolvers/dependencies.js';
 
@@ -365,6 +372,50 @@ function printAnalysisReport(result: AnalyzeResult, verbose: boolean): void {
         : 'High';
   logger.log(`  ${scoreColor(`${result.complexityScore}/100`)} (${scoreLabel})`);
 
+  // Extended Analysis
+  if (result.extendedAnalysis) {
+    const ext = result.extendedAnalysis;
+    const sections = [
+      { label: 'Environment', findings: ext.environment },
+      { label: 'Tooling', findings: ext.tooling },
+      { label: 'CI/CD', findings: ext.ci },
+      { label: 'Publishing', findings: ext.publishing },
+      { label: 'Repo Risks', findings: ext.repoRisks },
+    ];
+
+    for (const section of sections) {
+      if (section.findings.length > 0) {
+        logger.log(chalk.bold(`\n${section.label}:`));
+        for (const f of section.findings) {
+          const color = f.severity === 'error' || f.severity === 'critical'
+            ? chalk.red
+            : f.severity === 'warn'
+              ? chalk.yellow
+              : chalk.gray;
+          logger.log(`  ${color('•')} ${f.title}`);
+          if (verbose && f.suggestedAction) {
+            logger.log(`    ${chalk.cyan('→')} ${f.suggestedAction}`);
+          }
+        }
+      }
+    }
+
+    // Risk summary
+    const risk = ext.riskSummary;
+    const riskColor = risk.classification === 'complex'
+      ? chalk.red
+      : risk.classification === 'needs-decisions'
+        ? chalk.yellow
+        : chalk.green;
+    logger.log(chalk.bold('\nRisk classification:'));
+    logger.log(`  ${riskColor(risk.classification)}`);
+    if (risk.reasons.length > 0 && verbose) {
+      for (const reason of risk.reasons) {
+        logger.log(`  ${chalk.gray('•')} ${reason}`);
+      }
+    }
+  }
+
   // Recommendations
   if (result.recommendations.length > 0) {
     logger.log(chalk.bold('\nRecommendations:'));
@@ -461,6 +512,36 @@ export async function analyzeCommand(
     // Step 6c: Compute hotspots
     const hotspots = computeHotspots(depAnalysis.packages, depAnalysis.conflicts);
 
+    // Step 6d: Extended analysis
+    if (!options.json) {
+      logger.info('Running extended analysis...');
+    }
+
+    const analysisLogger = options.json ? silentLogger : logger;
+    const [envFindings, toolingFindings, ciFindings, publishFindings, riskFindings] =
+      await Promise.all([
+        analyzeEnvironment(repoPaths, analysisLogger),
+        analyzeTooling(repoPaths, analysisLogger),
+        analyzeCI(repoPaths, analysisLogger),
+        analyzePublishing(repoPaths, analysisLogger),
+        analyzeRepoRisks(repoPaths, analysisLogger),
+      ]);
+
+    const allExtendedFindings = [
+      ...envFindings, ...toolingFindings, ...ciFindings,
+      ...publishFindings, ...riskFindings,
+    ];
+
+    const extendedAnalysis: ExtendedAnalysis = {
+      environment: envFindings,
+      packageManager: [], // already covered by main dep analysis
+      tooling: toolingFindings,
+      ci: ciFindings,
+      publishing: publishFindings,
+      repoRisks: riskFindings,
+      riskSummary: classifyRisk(allExtendedFindings),
+    };
+
     // Extract peer conflicts for scoring
     const peerConflicts = depAnalysis.findings?.peerConflicts ?? [];
 
@@ -495,6 +576,7 @@ export async function analyzeCommand(
       circularDependencies: circularDependencies.length > 0 ? circularDependencies : undefined,
       hotspots: hotspots.length > 0 ? hotspots : undefined,
       findings: depAnalysis.findings,
+      extendedAnalysis,
     };
 
     // Output

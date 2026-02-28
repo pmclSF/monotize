@@ -7,6 +7,7 @@ import { CliHint } from '../components/CliHint';
 import { LogStream } from '../components/LogStream';
 import { ExportButton } from '../components/ExportButton';
 import { SkipButton } from '../components/SkipButton';
+import { DiffViewer } from '../components/DiffViewer';
 
 interface ConfigurePageProps {
   ws: UseWebSocketReturn;
@@ -16,9 +17,16 @@ interface ConfigurePageProps {
   onSkip: (stepId: string, rationale: string) => void;
 }
 
+interface ConfigurePatch {
+  path: string;
+  before?: string;
+  after: string;
+}
+
 interface ConfigureResult {
   scaffoldedFiles: Array<{ relativePath: string; description: string }>;
   skippedConfigs: Array<{ name: string; reason: string }>;
+  patches?: ConfigurePatch[];
 }
 
 export function ConfigurePage({ ws, options, packageNames, onComplete, onSkip }: ConfigurePageProps) {
@@ -102,6 +110,22 @@ export function ConfigurePage({ ws, options, packageNames, onComplete, onSkip }:
                   ))}
                 </tbody>
               </table>
+            </>
+          )}
+
+          {result.patches && result.patches.length > 0 && (
+            <>
+              <h3>Config Patches ({result.patches.length})</h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {result.patches.map((patch, i) => (
+                  <DiffViewer
+                    key={i}
+                    path={patch.path}
+                    before={patch.before}
+                    after={patch.after}
+                  />
+                ))}
+              </div>
             </>
           )}
 
