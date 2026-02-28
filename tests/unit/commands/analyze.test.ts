@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import type { PackageInfo } from '../../../src/types/index.js';
+import type { PackageInfo, CrossDependency } from '../../../src/types/index.js';
 import { detectCrossDependencies } from '../../../src/commands/analyze.js';
+import { detectCircularDependencies, computeHotspots } from '../../../src/analyzers/graph.js';
 
 const createMockPackage = (
   name: string,
@@ -112,6 +113,47 @@ describe('analyze command', () => {
 
       expect(crossDeps).toHaveLength(1);
       expect(crossDeps[0].currentVersion).toBe('workspace:*');
+    });
+  });
+
+  describe('circular dependencies in analyze result', () => {
+    it('should detect circular dependencies from cross-deps', () => {
+      const packages = [
+        createMockPackage('pkg-a', { 'pkg-b': '^1.0.0' }),
+        createMockPackage('pkg-b', { 'pkg-a': '^1.0.0' }),
+      ];
+
+      const crossDeps = detectCrossDependencies(packages);
+      const cycles = detectCircularDependencies(crossDeps);
+
+      expect(cycles).toHaveLength(1);
+      expect(cycles[0].cycle).toContain('pkg-a');
+      expect(cycles[0].cycle).toContain('pkg-b');
+    });
+
+    it('should return empty when no cycles exist', () => {
+      const packages = [
+        createMockPackage('pkg-a', { 'pkg-b': '^1.0.0' }),
+        createMockPackage('pkg-b', {}),
+      ];
+
+      const crossDeps = detectCrossDependencies(packages);
+      const cycles = detectCircularDependencies(crossDeps);
+
+      expect(cycles).toEqual([]);
+    });
+  });
+
+  describe('hotspots in analyze result', () => {
+    it('should compute hotspots from packages', () => {
+      const packages = [
+        createMockPackage('pkg-a', { lodash: '^4.17.21', react: '^18.2.0' }),
+        createMockPackage('pkg-b', { lodash: '^4.17.21' }),
+      ];
+
+      const hotspots = computeHotspots(packages, []);
+      expect(hotspots.find((h) => h.name === 'lodash')).toBeDefined();
+      expect(hotspots.find((h) => h.name === 'lodash')?.dependentCount).toBe(2);
     });
   });
 });

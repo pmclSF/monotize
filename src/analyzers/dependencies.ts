@@ -4,8 +4,13 @@ import type {
   DependencyConflict,
   DependencyAnalysis,
   ConflictSeverity,
+  LockfileResolution,
+  AnalysisFindings,
+  DecisionRequired,
 } from '../types/index.js';
 import { pathExists, readJson } from '../utils/fs.js';
+import { parseLockfile } from './lockfile.js';
+import { analyzePeerDependencies } from './peers.js';
 
 /**
  * Patterns for non-semver version specifiers
@@ -45,7 +50,7 @@ export function isWildcardVersion(version: string): boolean {
 /**
  * Parse a semver version string into components
  */
-function parseSemver(version: string): { major: number; minor: number; patch: number; prerelease?: string } | null {
+export function parseSemver(version: string): { major: number; minor: number; patch: number; prerelease?: string } | null {
   // Skip non-semver versions
   if (isNonSemverVersion(version)) {
     return null;
@@ -193,11 +198,53 @@ export interface DependencyWarning {
 }
 
 /**
+ * Detect conflicts between resolved versions across repos.
+ */
+function detectResolvedConflicts(
+  resolutions: LockfileResolution[]
+): DependencyConflict[] {
+  const conflicts: DependencyConflict[] = [];
+
+  // Group resolved versions by dep name across repos
+  const resolvedGroups = new Map<
+    string,
+    Array<{ version: string; source: string }>
+  >();
+
+  for (const res of resolutions) {
+    for (const [name, version] of Object.entries(res.resolvedVersions)) {
+      const existing = resolvedGroups.get(name) || [];
+      existing.push({ version, source: res.repoName });
+      resolvedGroups.set(name, existing);
+    }
+  }
+
+  for (const [name, entries] of resolvedGroups) {
+    const uniqueVersions = [...new Set(entries.map((e) => e.version))];
+    if (uniqueVersions.length > 1) {
+      conflicts.push({
+        name,
+        versions: entries.map((e) => ({
+          version: e.version,
+          source: e.source,
+          type: 'dependencies' as const,
+        })),
+        severity: determineConflictSeverity(uniqueVersions),
+        confidence: 'high',
+        conflictSource: 'resolved',
+      });
+    }
+  }
+
+  return conflicts;
+}
+
+/**
  * Analyze dependencies across multiple repositories
  */
 export async function analyzeDependencies(
   repoPaths: Array<{ path: string; name: string }>
-): Promise<DependencyAnalysis & { warnings?: DependencyWarning[] }> {
+): Promise<DependencyAnalysis & { warnings?: DependencyWarning[]; findings?: AnalysisFindings; lockfileResolutions?: LockfileResolution[] }> {
   const allPackages: PackageInfo[] = [];
   const warnings: DependencyWarning[] = [];
 
@@ -205,6 +252,15 @@ export async function analyzeDependencies(
   for (const repo of repoPaths) {
     const packages = await findPackages(repo.path, repo.name);
     allPackages.push(...packages);
+  }
+
+  // Parse lockfiles for each repo
+  const lockfileResolutions: LockfileResolution[] = [];
+  for (const repo of repoPaths) {
+    const resolution = await parseLockfile(repo.path, repo.name);
+    if (resolution) {
+      lockfileResolutions.push(resolution);
+    }
   }
 
   // Group dependencies by name
@@ -254,20 +310,52 @@ export async function analyzeDependencies(
     }
   }
 
-  // Identify conflicts
-  const conflicts: DependencyConflict[] = [];
+  // Identify declared conflicts and tag with confidence/source
+  const declaredConflicts: DependencyConflict[] = [];
 
   for (const [name, versions] of depGroups) {
     const uniqueVersions = [...new Set(versions.map((v) => v.version))];
 
     if (uniqueVersions.length > 1) {
-      conflicts.push({
+      declaredConflicts.push({
         name,
         versions,
         severity: determineConflictSeverity(uniqueVersions),
+        confidence: 'high',
+        conflictSource: 'declared',
       });
     }
   }
+
+  // Detect resolved conflicts from lockfiles
+  const resolvedConflicts = detectResolvedConflicts(lockfileResolutions);
+
+  // Detect peer dependency conflicts
+  const peerConflicts = analyzePeerDependencies(allPackages, lockfileResolutions);
+
+  // All conflicts combined (backward compat)
+  const allConflicts = [...declaredConflicts, ...resolvedConflicts, ...peerConflicts];
+
+  // Deduplicate: if a dep appears in multiple conflict lists, keep the one with highest confidence
+  const conflictMap = new Map<string, DependencyConflict>();
+  for (const conflict of allConflicts) {
+    const existing = conflictMap.get(conflict.name);
+    if (!existing) {
+      conflictMap.set(conflict.name, conflict);
+    } else if (
+      conflict.conflictSource === 'resolved' &&
+      existing.conflictSource === 'declared'
+    ) {
+      // Resolved takes precedence for the combined list
+      conflictMap.set(conflict.name, conflict);
+    }
+    // Keep peer conflicts as separate entries (they have different semantics)
+    if (conflict.conflictSource === 'peer-constraint' && existing && existing.conflictSource !== 'peer-constraint') {
+      // Add with a unique key
+      conflictMap.set(`${conflict.name}__peer`, conflict);
+    }
+  }
+  const conflicts = [...conflictMap.values()];
 
   // Sort conflicts by severity
   const severityOrder: Record<ConflictSeverity, number> = {
@@ -276,6 +364,35 @@ export async function analyzeDependencies(
     minor: 2,
   };
   conflicts.sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity]);
+
+  // Build decisions from incompatible conflicts and peer violations
+  const decisions: DecisionRequired[] = [];
+  for (const conflict of declaredConflicts) {
+    if (conflict.severity === 'incompatible') {
+      decisions.push({
+        kind: 'version-conflict',
+        description: `Incompatible versions of "${conflict.name}": ${conflict.versions.map((v) => `${v.version} (${v.source})`).join(', ')}`,
+        relatedConflict: conflict.name,
+        suggestedAction: 'Consider using --no-hoist or updating packages to compatible versions.',
+      });
+    }
+  }
+  for (const conflict of peerConflicts) {
+    decisions.push({
+      kind: 'peer-constraint-violation',
+      description: `Peer dependency "${conflict.name}" may not be satisfied: ${conflict.versions.map((v) => `${v.version} (${v.source})`).join(' vs ')}`,
+      relatedConflict: conflict.name,
+      suggestedAction: 'Review peer dependency requirements and update versions as needed.',
+    });
+  }
+
+  // Build findings
+  const findings: AnalysisFindings = {
+    declaredConflicts,
+    resolvedConflicts,
+    peerConflicts,
+    decisions,
+  };
 
   // Resolve to highest versions by default
   const resolvedDependencies: Record<string, string> = {};
@@ -300,6 +417,8 @@ export async function analyzeDependencies(
     resolvedDependencies,
     resolvedDevDependencies,
     warnings: warnings.length > 0 ? warnings : undefined,
+    findings,
+    lockfileResolutions: lockfileResolutions.length > 0 ? lockfileResolutions : undefined,
   };
 }
 

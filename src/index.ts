@@ -3,6 +3,11 @@ import { Command } from 'commander';
 import { mergeCommand } from './commands/merge.js';
 import { initCommand } from './commands/init.js';
 import { analyzeCommand } from './commands/analyze.js';
+import { applyCommand } from './commands/apply.js';
+import { planCommand } from './commands/plan.js';
+import { verifyCommand } from './commands/verify.js';
+import { prepareCommand } from './commands/prepare.js';
+import { uiCommand } from './commands/ui.js';
 
 const program = new Command();
 
@@ -74,5 +79,81 @@ program
   .option('-v, --verbose', 'Verbose output')
   .option('--json', 'Output as JSON')
   .action(analyzeCommand);
+
+program
+  .command('plan')
+  .description('Generate a migration plan for review before applying')
+  .argument('<repos...>', 'Repositories to merge (URLs, GitHub shorthand, or local paths)')
+  .option('-o, --output <dir>', 'Target output directory for the monorepo', './monorepo')
+  .option('-p, --packages-dir <name>', 'Packages subdirectory name', 'packages')
+  .option('--plan-file <file>', 'Path for the generated plan JSON file')
+  .option('-y, --yes', 'Skip prompts, use defaults')
+  .option(
+    '--conflict-strategy <strategy>',
+    'Dependency conflict resolution strategy (highest, lowest, prompt)',
+    'prompt'
+  )
+  .option('-v, --verbose', 'Verbose output')
+  .option('--no-install', 'Skip running package install in the apply phase')
+  .option('--no-hoist', 'Keep dependencies in each package (prevents type conflicts)')
+  .option('--pin-versions', 'Pin dependency versions by removing ^ and ~ ranges')
+  .option(
+    '--package-manager <pm>',
+    'Package manager to use (pnpm, yarn, yarn-berry, npm)',
+    'pnpm'
+  )
+  .option('--auto-detect-pm', 'Auto-detect package manager from source repos')
+  .option(
+    '--workspace-tool <tool>',
+    'Generate workspace tool config (turbo, nx, none)',
+    'none'
+  )
+  .option(
+    '--workflow-strategy <strategy>',
+    'CI workflow merge strategy (combine, keep-first, keep-last, skip)',
+    'combine'
+  )
+  .action(planCommand);
+
+program
+  .command('apply')
+  .description('Apply a migration plan to create a monorepo (transactional)')
+  .requiredOption('--plan <file>', 'Path to migration plan JSON file')
+  .option('-o, --out <dir>', 'Output directory', './monorepo')
+  .option('--resume', 'Resume an interrupted apply from staging directory')
+  .option('--cleanup', 'Remove staging artifacts from a previous interrupted run')
+  .option('--dry-run', 'Show what would be done without executing')
+  .option('-v, --verbose', 'Verbose output')
+  .action(applyCommand);
+
+program
+  .command('verify')
+  .description('Verify a migration plan or applied monorepo')
+  .option('--plan <file>', 'Path to migration plan JSON file')
+  .option('--dir <dir>', 'Path to applied monorepo directory')
+  .option('--tier <tier>', 'Verification tier (static, install, full)', 'static')
+  .option('--json', 'Output as JSON')
+  .option('-v, --verbose', 'Verbose output')
+  .action(verifyCommand);
+
+program
+  .command('prepare')
+  .description('Analyze repos and generate pre-migration patches and checklist')
+  .argument('<repos...>', 'Repositories to prepare')
+  .option('--node-version <ver>', 'Target Node.js version (e.g. "20")')
+  .option('--package-manager <pm>', 'Target package manager (pnpm, yarn, npm)')
+  .option('--patch-only', 'Emit patches only (default mode)')
+  .option('--out-dir <dir>', 'Write patches and checklist to directory')
+  .option('--prep-workspace <dir>', 'Clone repos, apply patches, commit on branch')
+  .option('-v, --verbose', 'Verbose output')
+  .action(prepareCommand);
+
+program
+  .command('ui')
+  .description('Start the web UI server')
+  .option('-p, --port <port>', 'Port to listen on', '3847')
+  .option('--no-open', 'Do not open browser automatically')
+  .option('-v, --verbose', 'Verbose output')
+  .action(uiCommand);
 
 program.parse();

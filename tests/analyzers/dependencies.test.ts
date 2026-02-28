@@ -76,6 +76,42 @@ describe('analyzeDependencies', () => {
     // Should only find one package
     expect(result.packages).toHaveLength(1);
   });
+
+  it('should include findings in result', async () => {
+    const repoPaths = [
+      { path: path.join(fixturesPath, 'repo-a'), name: 'repo-a' },
+      { path: path.join(fixturesPath, 'repo-b'), name: 'repo-b' },
+    ];
+
+    const result = await analyzeDependencies(repoPaths);
+
+    expect(result.findings).toBeDefined();
+    expect(result.findings!.declaredConflicts).toBeDefined();
+    expect(result.findings!.resolvedConflicts).toBeDefined();
+    expect(result.findings!.peerConflicts).toBeDefined();
+    expect(result.findings!.decisions).toBeDefined();
+
+    // Declared conflicts should have confidence tags
+    for (const conflict of result.findings!.declaredConflicts) {
+      expect(conflict.confidence).toBe('high');
+      expect(conflict.conflictSource).toBe('declared');
+    }
+  });
+
+  it('should tag conflicts with confidence and source', async () => {
+    const repoPaths = [
+      { path: path.join(fixturesPath, 'repo-a'), name: 'repo-a' },
+      { path: path.join(fixturesPath, 'repo-b'), name: 'repo-b' },
+    ];
+
+    const result = await analyzeDependencies(repoPaths);
+
+    // All conflicts in the combined list should have tags
+    for (const conflict of result.conflicts) {
+      expect(conflict.confidence).toBeDefined();
+      expect(conflict.conflictSource).toBeDefined();
+    }
+  });
 });
 
 describe('getHighestVersion', () => {

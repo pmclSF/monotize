@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import os from 'node:os';
 import fs from 'fs-extra';
 import type { RepoSource, RepoSourceType, ValidationResult } from '../types/index.js';
@@ -20,7 +20,7 @@ export interface PrerequisitesResult {
 function commandExists(command: string): boolean {
   try {
     const whichCmd = process.platform === 'win32' ? 'where' : 'which';
-    execSync(`${whichCmd} ${command}`, { stdio: 'pipe' });
+    execFileSync(whichCmd, [command], { stdio: 'pipe' });
     return true;
   } catch {
     return false;
@@ -59,11 +59,15 @@ async function getAvailableDiskSpace(dirPath: string): Promise<number | null> {
     // Use df command on Unix systems
     if (process.platform !== 'win32') {
       const targetDir = (await fs.pathExists(dirPath)) ? dirPath : path.dirname(dirPath);
-      const output = execSync(`df -k "${targetDir}" | tail -1 | awk '{print $4}'`, {
-        stdio: 'pipe',
+      const output = execFileSync('df', ['-k', targetDir], {
         encoding: 'utf-8',
       });
-      const kbytes = parseInt(output.trim(), 10);
+      // Parse the last line, 4th column (Available KB)
+      const lines = output.trim().split('\n');
+      const lastLine = lines[lines.length - 1];
+      const columns = lastLine.split(/\s+/);
+      const kbytes = parseInt(columns[3], 10);
+      if (isNaN(kbytes)) return null;
       return kbytes * 1024; // Convert to bytes
     }
 

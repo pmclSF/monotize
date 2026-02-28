@@ -1,6 +1,7 @@
 import chalk from 'chalk';
 import type {
   AnalyzeResult,
+  CircularDependency,
   CrossDependency,
   DependencyConflict,
   FileCollision,
@@ -11,6 +12,7 @@ import { createTempDir, removeDir } from '../utils/fs.js';
 import { validateRepoSources } from '../utils/validation.js';
 import { analyzeDependencies } from '../analyzers/dependencies.js';
 import { detectFileCollisions } from '../analyzers/files.js';
+import { detectCircularDependencies, computeHotspots } from '../analyzers/graph.js';
 import { cloneOrCopyRepos } from '../strategies/copy.js';
 import { getConflictSummary } from '../resolvers/dependencies.js';
 
@@ -55,11 +57,13 @@ export function detectCrossDependencies(packages: PackageInfo[]): CrossDependenc
  * Calculate complexity score based on analysis results
  * Score from 0-100 where higher = more complex
  */
-function calculateComplexityScore(
+export function calculateComplexityScore(
   packages: PackageInfo[],
   conflicts: DependencyConflict[],
   collisions: FileCollision[],
-  crossDeps: CrossDependency[]
+  crossDeps: CrossDependency[],
+  peerConflicts: DependencyConflict[] = [],
+  circularDeps: CircularDependency[] = []
 ): number {
   let score = 0;
 
@@ -82,6 +86,12 @@ function calculateComplexityScore(
   }
   score = Math.min(score, 60); // Cap at 60 for conflicts
 
+  // Peer conflicts: +5 each
+  score += peerConflicts.length * 5;
+
+  // Circular dependencies: +10 each
+  score += circularDeps.length * 10;
+
   // File collisions contribution (0-20 points)
   score += Math.min(collisions.length * 2, 20);
 
@@ -101,11 +111,13 @@ function calculateComplexityScore(
 /**
  * Generate recommendations based on analysis
  */
-function generateRecommendations(
+export function generateRecommendations(
   packages: PackageInfo[],
   conflicts: DependencyConflict[],
   collisions: FileCollision[],
-  crossDeps: CrossDependency[]
+  crossDeps: CrossDependency[],
+  peerConflicts: DependencyConflict[] = [],
+  circularDeps: CircularDependency[] = []
 ): string[] {
   const recommendations: string[] = [];
 
@@ -168,6 +180,31 @@ function generateRecommendations(
     recommendations.push(
       `Only ${hasCommonScripts.build}/${packages.length} packages have a build script. ` +
         `Consider standardizing scripts across packages.`
+    );
+  }
+
+  // Peer dependency recommendations
+  if (peerConflicts.length > 0) {
+    recommendations.push(
+      `Found ${peerConflicts.length} peer dependency violation(s). ` +
+        `Review peer dependency requirements and update versions to satisfy constraints.`
+    );
+  }
+
+  // Circular dependency recommendations
+  if (circularDeps.length > 0) {
+    recommendations.push(
+      `Found ${circularDeps.length} circular dependency cycle(s). ` +
+        `Consider restructuring packages to break cycles, or extract shared code into a common package.`
+    );
+  }
+
+  // Low-confidence findings
+  const lowConfidence = [...conflicts, ...peerConflicts].filter((c) => c.confidence === 'low');
+  if (lowConfidence.length > 0) {
+    recommendations.push(
+      `${lowConfidence.length} finding(s) have low confidence due to complex version ranges. ` +
+        `Manual verification is recommended.`
     );
   }
 
@@ -240,6 +277,75 @@ function printAnalysisReport(result: AnalyzeResult, verbose: boolean): void {
       logger.log(
         `  • ${dep.fromPackage} → ${dep.toPackage} (${dep.currentVersion})`
       );
+    }
+  }
+
+  // Findings Breakdown
+  if (result.findings) {
+    const { declaredConflicts, resolvedConflicts, peerConflicts } = result.findings;
+    const totalFindings = declaredConflicts.length + resolvedConflicts.length + peerConflicts.length;
+
+    if (totalFindings > 0) {
+      logger.log(chalk.bold('\nFindings breakdown:'));
+
+      if (declaredConflicts.length > 0) {
+        logger.log(`  Declared conflicts: ${declaredConflicts.length}`);
+        if (verbose) {
+          for (const c of declaredConflicts) {
+            const badge = c.confidence === 'high' ? chalk.green('[HIGH]') : c.confidence === 'medium' ? chalk.yellow('[MED]') : chalk.gray('[LOW]');
+            logger.log(`    ${badge} ${c.name}: ${c.versions.map((v) => `${v.version} (${v.source})`).join(', ')}`);
+          }
+        }
+      }
+
+      if (resolvedConflicts.length > 0) {
+        logger.log(`  Resolved conflicts: ${resolvedConflicts.length}`);
+        if (verbose) {
+          for (const c of resolvedConflicts) {
+            const badge = c.confidence === 'high' ? chalk.green('[HIGH]') : c.confidence === 'medium' ? chalk.yellow('[MED]') : chalk.gray('[LOW]');
+            logger.log(`    ${badge} ${c.name}: ${c.versions.map((v) => `${v.version} (${v.source})`).join(', ')}`);
+          }
+        }
+      }
+
+      if (peerConflicts.length > 0) {
+        logger.log(`  Peer constraint violations: ${peerConflicts.length}`);
+        if (verbose) {
+          for (const c of peerConflicts) {
+            const badge = c.confidence === 'low' ? chalk.gray('[LOW]') : chalk.yellow('[MED]');
+            logger.log(`    ${badge} ${c.name}: ${c.versions.map((v) => `${v.version} (${v.source})`).join(' vs ')}`);
+          }
+        }
+      }
+    }
+  }
+
+  // Circular Dependencies
+  if (result.circularDependencies && result.circularDependencies.length > 0) {
+    logger.log(chalk.bold('\nCircular dependencies:'));
+    for (const cycle of result.circularDependencies) {
+      logger.log(`  ${chalk.red('⟳')} ${cycle.cycle.join(' → ')} → ${cycle.cycle[0]}`);
+    }
+  }
+
+  // Hotspots
+  if (result.hotspots && result.hotspots.length > 0) {
+    const topHotspots = result.hotspots.slice(0, 5);
+    logger.log(chalk.bold('\nDependency hotspots:'));
+    for (const hotspot of topHotspots) {
+      const conflictMark = hotspot.hasConflict ? chalk.red(' ⚠ conflict') : '';
+      logger.log(`  • ${hotspot.name} (${hotspot.dependentCount} packages)${conflictMark}`);
+    }
+  }
+
+  // Decisions Required
+  if (result.findings && result.findings.decisions.length > 0) {
+    logger.log(chalk.bold('\nDecisions required:'));
+    for (const decision of result.findings.decisions) {
+      logger.log(`  ${chalk.yellow('?')} ${decision.description}`);
+      if (decision.suggestedAction) {
+        logger.log(`    ${chalk.cyan('→')} ${decision.suggestedAction}`);
+      }
     }
   }
 
@@ -349,12 +455,23 @@ export async function analyzeCommand(
     // Step 6: Detect cross-dependencies
     const crossDependencies = detectCrossDependencies(depAnalysis.packages);
 
+    // Step 6b: Detect circular dependencies
+    const circularDependencies = detectCircularDependencies(crossDependencies);
+
+    // Step 6c: Compute hotspots
+    const hotspots = computeHotspots(depAnalysis.packages, depAnalysis.conflicts);
+
+    // Extract peer conflicts for scoring
+    const peerConflicts = depAnalysis.findings?.peerConflicts ?? [];
+
     // Step 7: Calculate complexity score
     const complexityScore = calculateComplexityScore(
       depAnalysis.packages,
       depAnalysis.conflicts,
       collisions,
-      crossDependencies
+      crossDependencies,
+      peerConflicts,
+      circularDependencies
     );
 
     // Step 8: Generate recommendations
@@ -362,7 +479,9 @@ export async function analyzeCommand(
       depAnalysis.packages,
       depAnalysis.conflicts,
       collisions,
-      crossDependencies
+      crossDependencies,
+      peerConflicts,
+      circularDependencies
     );
 
     // Build result
@@ -373,6 +492,9 @@ export async function analyzeCommand(
       crossDependencies,
       complexityScore,
       recommendations,
+      circularDependencies: circularDependencies.length > 0 ? circularDependencies : undefined,
+      hotspots: hotspots.length > 0 ? hotspots : undefined,
+      findings: depAnalysis.findings,
     };
 
     // Output

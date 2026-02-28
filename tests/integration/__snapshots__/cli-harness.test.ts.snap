@@ -1,0 +1,147 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`CLI Harness - local fixture repos > init command > should produce a valid pnpm-workspace.yaml 1`] = `
+"packages:
+  - 'packages/*'
+"
+`;
+
+exports[`CLI Harness - local fixture repos > init command > should produce a valid root package.json 1`] = `
+{
+  "engines": {
+    "node": ">=18",
+  },
+  "name": "out-init",
+  "private": true,
+  "scripts": {
+    "build": "pnpm -r build",
+    "dev": "pnpm -r dev",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test",
+  },
+  "type": "module",
+  "version": "0.0.0",
+}
+`;
+
+exports[`CLI Harness - local fixture repos > init command > should produce the expected output tree 1`] = `
+[
+  ".gitignore",
+  "README.md",
+  "package.json",
+  "packages/",
+  "pnpm-workspace.yaml",
+]
+`;
+
+exports[`CLI Harness - local fixture repos > merge three repos > should produce a valid root package.json 1`] = `
+{
+  "dependencies": {
+    "chalk": "^5.3.0",
+    "express": "^4.18.0",
+    "lodash": "^4.17.21",
+  },
+  "devDependencies": {
+    "typescript": "^5.3.0",
+  },
+  "engines": {
+    "node": ">=18",
+  },
+  "name": "out-three",
+  "private": true,
+  "scripts": {
+    "alpha:build": "pnpm --filter alpha build",
+    "alpha:test": "pnpm --filter alpha test",
+    "beta:build": "pnpm --filter beta build",
+    "beta:lint": "pnpm --filter beta lint",
+    "beta:test": "pnpm --filter beta test",
+    "build": "pnpm -r build",
+    "gamma:build": "pnpm --filter gamma build",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test",
+  },
+  "type": "module",
+  "version": "0.0.0",
+}
+`;
+
+exports[`CLI Harness - local fixture repos > merge three repos > should produce the expected output tree 1`] = `
+[
+  ".gitignore",
+  "README.md",
+  "package.json",
+  "packages/",
+  "packages/alpha/",
+  "packages/alpha/.gitignore",
+  "packages/alpha/package.json",
+  "packages/alpha/src/",
+  "packages/alpha/src/index.ts",
+  "packages/beta/",
+  "packages/beta/.gitignore",
+  "packages/beta/README.md",
+  "packages/beta/package.json",
+  "packages/beta/src/",
+  "packages/beta/src/index.ts",
+  "packages/gamma/",
+  "packages/gamma/package.json",
+  "packages/gamma/src/",
+  "packages/gamma/src/main.ts",
+  "pnpm-workspace.yaml",
+]
+`;
+
+exports[`CLI Harness - local fixture repos > merge two repos > should produce a valid pnpm-workspace.yaml 1`] = `
+"packages:
+  - 'packages/*'
+"
+`;
+
+exports[`CLI Harness - local fixture repos > merge two repos > should produce a valid root package.json 1`] = `
+{
+  "dependencies": {
+    "express": "^4.18.0",
+    "lodash": "^4.17.21",
+  },
+  "devDependencies": {
+    "typescript": "^5.3.0",
+  },
+  "engines": {
+    "node": ">=18",
+  },
+  "name": "out-two",
+  "private": true,
+  "scripts": {
+    "alpha:build": "pnpm --filter alpha build",
+    "alpha:test": "pnpm --filter alpha test",
+    "beta:build": "pnpm --filter beta build",
+    "beta:lint": "pnpm --filter beta lint",
+    "beta:test": "pnpm --filter beta test",
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test",
+  },
+  "type": "module",
+  "version": "0.0.0",
+}
+`;
+
+exports[`CLI Harness - local fixture repos > merge two repos > should produce the expected output tree 1`] = `
+[
+  ".gitignore",
+  "README.md",
+  "package.json",
+  "packages/",
+  "packages/alpha/",
+  "packages/alpha/.gitignore",
+  "packages/alpha/package.json",
+  "packages/alpha/src/",
+  "packages/alpha/src/index.ts",
+  "packages/beta/",
+  "packages/beta/.gitignore",
+  "packages/beta/README.md",
+  "packages/beta/package.json",
+  "packages/beta/src/",
+  "packages/beta/src/index.ts",
+  "pnpm-workspace.yaml",
+]
+`;

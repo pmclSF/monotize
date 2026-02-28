@@ -106,6 +106,67 @@ ${packageNames.map((name) => `│   ├── ${name}/`).join('\n')}
 }
 
 /**
+ * Pure variant of handleFileCollision that returns file content instead of writing to disk.
+ * Used by the plan command to serialize collision resolution results into an ApplyPlan.
+ */
+export async function resolveFileCollisionToContent(
+  collision: FileCollision,
+  strategy: FileCollisionStrategy,
+  repoPaths: Array<{ path: string; name: string }>
+): Promise<Array<{ relativePath: string; content: string }>> {
+  const getFilePath = (repoName: string) => {
+    const repo = repoPaths.find((r) => r.name === repoName);
+    return repo ? path.join(repo.path, collision.path) : '';
+  };
+
+  switch (strategy) {
+    case 'merge': {
+      const filePaths = collision.sources.map(getFilePath).filter(Boolean);
+      const merged = collision.path.includes('gitignore')
+        ? await mergeGitignores(filePaths)
+        : await mergeIgnoreFiles(filePaths);
+      return [{ relativePath: collision.path, content: merged }];
+    }
+
+    case 'keep-first': {
+      const firstPath = getFilePath(collision.sources[0]);
+      if (firstPath && (await pathExists(firstPath))) {
+        const content = await readFile(firstPath);
+        return [{ relativePath: collision.path, content }];
+      }
+      return [];
+    }
+
+    case 'keep-last': {
+      const lastPath = getFilePath(collision.sources[collision.sources.length - 1]);
+      if (lastPath && (await pathExists(lastPath))) {
+        const content = await readFile(lastPath);
+        return [{ relativePath: collision.path, content }];
+      }
+      return [];
+    }
+
+    case 'rename': {
+      const results: Array<{ relativePath: string; content: string }> = [];
+      for (const source of collision.sources) {
+        const sourcePath = getFilePath(source);
+        if (sourcePath && (await pathExists(sourcePath))) {
+          const ext = path.extname(collision.path);
+          const base = path.basename(collision.path, ext);
+          const renamedName = `${base}.${source}${ext}`;
+          const content = await readFile(sourcePath);
+          results.push({ relativePath: renamedName, content });
+        }
+      }
+      return results;
+    }
+
+    case 'skip':
+      return [];
+  }
+}
+
+/**
  * Handle a file collision based on the selected strategy
  */
 export async function handleFileCollision(

@@ -1,4 +1,4 @@
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import type { PackageManagerType, PackageManagerConfig } from '../types/index.js';
 import { pathExists } from '../utils/fs.js';
@@ -9,7 +9,7 @@ import { pathExists } from '../utils/fs.js';
 export function getPackageManagerVersion(pm: PackageManagerType): string {
   const command = pm === 'yarn-berry' ? 'yarn' : pm;
   try {
-    const version = execSync(`${command} --version`, { encoding: 'utf-8' }).trim();
+    const version = execFileSync(command, ['--version'], { encoding: 'utf-8' }).trim();
     return version;
   } catch {
     // Default fallback versions
@@ -32,7 +32,7 @@ export function getPackageManagerVersion(pm: PackageManagerType): string {
 export function isPackageManagerInstalled(pm: PackageManagerType): boolean {
   const command = pm === 'yarn-berry' ? 'yarn' : pm;
   try {
-    execSync(`${command} --version`, { stdio: 'pipe' });
+    execFileSync(command, ['--version'], { stdio: 'pipe' });
     return true;
   } catch {
     return false;
@@ -75,7 +75,7 @@ export async function isYarnBerry(dirPath?: string): Promise<boolean> {
 
   // Check yarn version
   try {
-    const version = execSync('yarn --version', { encoding: 'utf-8' }).trim();
+    const version = execFileSync('yarn', ['--version'], { encoding: 'utf-8' }).trim();
     const majorVersion = parseInt(version.split('.')[0], 10);
     return majorVersion >= 2;
   } catch {
@@ -94,7 +94,7 @@ export function createPackageManagerConfig(pm: PackageManagerType): PackageManag
       return {
         type: 'pnpm',
         version,
-        installCommand: 'pnpm install',
+        installCommand: 'pnpm install --ignore-scripts',
         runAllCommand: (script: string) => `pnpm -r ${script}`,
         runFilteredCommand: (pkg: string, script: string) => `pnpm --filter ${pkg} ${script}`,
         lockFile: 'pnpm-lock.yaml',
@@ -106,7 +106,7 @@ export function createPackageManagerConfig(pm: PackageManagerType): PackageManag
       return {
         type: 'yarn',
         version,
-        installCommand: 'yarn install',
+        installCommand: 'yarn install --ignore-scripts',
         runAllCommand: (script: string) => `yarn workspaces run ${script}`,
         runFilteredCommand: (pkg: string, script: string) => `yarn workspace ${pkg} ${script}`,
         lockFile: 'yarn.lock',
@@ -118,7 +118,7 @@ export function createPackageManagerConfig(pm: PackageManagerType): PackageManag
       return {
         type: 'yarn-berry',
         version,
-        installCommand: 'yarn install',
+        installCommand: 'yarn install --ignore-scripts',
         runAllCommand: (script: string) => `yarn workspaces foreach run ${script}`,
         runFilteredCommand: (pkg: string, script: string) => `yarn workspace ${pkg} ${script}`,
         lockFile: 'yarn.lock',
@@ -130,7 +130,7 @@ export function createPackageManagerConfig(pm: PackageManagerType): PackageManag
       return {
         type: 'npm',
         version,
-        installCommand: 'npm install',
+        installCommand: 'npm install --ignore-scripts',
         runAllCommand: (script: string) => `npm run ${script} -ws`,
         runFilteredCommand: (pkg: string, script: string) => `npm run ${script} -w ${pkg}`,
         lockFile: 'package-lock.json',

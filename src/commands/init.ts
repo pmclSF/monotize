@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import type { WorkspaceTool, PackageManagerConfig } from '../types/index.js';
 import { createLogger } from '../utils/logger.js';
 import { ensureDir, writeFile, writeJson, pathExists } from '../utils/fs.js';
@@ -320,7 +320,7 @@ export async function initCommand(
       try {
         const gitDir = path.join(targetDir, '.git');
         if (!(await pathExists(gitDir))) {
-          execSync('git init', {
+          execFileSync('git', ['init'], {
             cwd: targetDir,
             stdio: options.verbose ? 'inherit' : 'pipe',
           });
