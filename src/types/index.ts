@@ -529,3 +529,55 @@ export interface ApplyOptions {
   /** Verbose output */
   verbose: boolean;
 }
+
+// ============================================================================
+// Stage 6: Tiered Verification
+// ============================================================================
+
+/**
+ * Verification tier level
+ */
+export type VerifyTier = 'static' | 'install' | 'full';
+
+/**
+ * Status of a single verification check
+ */
+export type VerifyCheckStatus = 'pass' | 'warn' | 'fail';
+
+/**
+ * A single verification check result
+ */
+export interface VerifyCheck {
+  /** Unique identifier, e.g. 'root-private', 'pkg-name:pkg-a' */
+  id: string;
+  /** Human-readable description */
+  message: string;
+  /** Check outcome */
+  status: VerifyCheckStatus;
+  /** Which tier this check belongs to */
+  tier: VerifyTier;
+  /** Dot-path into the plan, e.g. "rootPackageJson.private" */
+  planRef?: string;
+  /** Additional detail for verbose output */
+  details?: string;
+}
+
+/**
+ * Complete result of a verify run
+ */
+export interface VerifyResult {
+  /** Tier that was executed */
+  tier: VerifyTier;
+  /** Whether input was a plan file or directory */
+  inputType: 'plan' | 'dir';
+  /** Path to the input file or directory */
+  inputPath: string;
+  /** All checks that were run */
+  checks: VerifyCheck[];
+  /** Counts by status */
+  summary: { total: number; pass: number; warn: number; fail: number };
+  /** True when summary.fail === 0 */
+  ok: boolean;
+  /** ISO-8601 timestamp */
+  timestamp: string;
+}

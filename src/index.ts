@@ -5,6 +5,7 @@ import { initCommand } from './commands/init.js';
 import { analyzeCommand } from './commands/analyze.js';
 import { applyCommand } from './commands/apply.js';
 import { planCommand } from './commands/plan.js';
+import { verifyCommand } from './commands/verify.js';
 
 const program = new Command();
 
@@ -122,5 +123,15 @@ program
   .option('--dry-run', 'Show what would be done without executing')
   .option('-v, --verbose', 'Verbose output')
   .action(applyCommand);
+
+program
+  .command('verify')
+  .description('Verify a migration plan or applied monorepo')
+  .option('--plan <file>', 'Path to migration plan JSON file')
+  .option('--dir <dir>', 'Path to applied monorepo directory')
+  .option('--tier <tier>', 'Verification tier (static, install, full)', 'static')
+  .option('--json', 'Output as JSON')
+  .option('-v, --verbose', 'Verbose output')
+  .action(verifyCommand);
 
 program.parse();

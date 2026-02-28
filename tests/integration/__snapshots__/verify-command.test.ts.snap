@@ -1,0 +1,66 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`verify command integration > static tier on directory > should verify repo-nested-workspace fixture 1`] = `
+[
+  {
+    "id": "root-private",
+    "status": "pass",
+    "tier": "static",
+  },
+  {
+    "id": "root-name",
+    "status": "pass",
+    "tier": "static",
+  },
+  {
+    "id": "root-scripts-exist",
+    "status": "warn",
+    "tier": "static",
+  },
+  {
+    "id": "workspace-config",
+    "status": "pass",
+    "tier": "static",
+  },
+  {
+    "id": "pkg-name:pkg-a",
+    "status": "pass",
+    "tier": "static",
+  },
+  {
+    "id": "pkg-name:pkg-b",
+    "status": "pass",
+    "tier": "static",
+  },
+  {
+    "id": "root-scripts",
+    "status": "pass",
+    "tier": "static",
+  },
+  {
+    "id": "tsconfig",
+    "status": "pass",
+    "tier": "static",
+  },
+  {
+    "id": "circular-deps",
+    "status": "pass",
+    "tier": "static",
+  },
+  {
+    "id": "pkg-version:pkg-a",
+    "status": "pass",
+    "tier": "static",
+  },
+  {
+    "id": "pkg-version:pkg-b",
+    "status": "pass",
+    "tier": "static",
+  },
+  {
+    "id": "root-engines",
+    "status": "warn",
+    "tier": "static",
+  },
+]
+`;
