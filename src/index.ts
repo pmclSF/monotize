@@ -7,6 +7,7 @@ import { applyCommand } from './commands/apply.js';
 import { planCommand } from './commands/plan.js';
 import { verifyCommand } from './commands/verify.js';
 import { prepareCommand } from './commands/prepare.js';
+import { uiCommand } from './commands/ui.js';
 
 const program = new Command();
 
@@ -146,5 +147,13 @@ program
   .option('--prep-workspace <dir>', 'Clone repos, apply patches, commit on branch')
   .option('-v, --verbose', 'Verbose output')
   .action(prepareCommand);
+
+program
+  .command('ui')
+  .description('Start the web UI server')
+  .option('-p, --port <port>', 'Port to listen on', '3847')
+  .option('--no-open', 'Do not open browser automatically')
+  .option('-v, --verbose', 'Verbose output')
+  .action(uiCommand);
 
 program.parse();

@@ -57,7 +57,7 @@ export function detectCrossDependencies(packages: PackageInfo[]): CrossDependenc
  * Calculate complexity score based on analysis results
  * Score from 0-100 where higher = more complex
  */
-function calculateComplexityScore(
+export function calculateComplexityScore(
   packages: PackageInfo[],
   conflicts: DependencyConflict[],
   collisions: FileCollision[],
@@ -111,7 +111,7 @@ function calculateComplexityScore(
 /**
  * Generate recommendations based on analysis
  */
-function generateRecommendations(
+export function generateRecommendations(
   packages: PackageInfo[],
   conflicts: DependencyConflict[],
   collisions: FileCollision[],

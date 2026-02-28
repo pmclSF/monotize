@@ -10,4 +10,5 @@ export default defineConfig({
   outDir: 'dist',
   splitting: false,
   treeshake: true,
+  external: ['express', 'ws'],
 });
