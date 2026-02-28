@@ -346,3 +346,100 @@ export interface NxTargetDefault {
   outputs?: string[];
   cache?: boolean;
 }
+
+// ============================================================================
+// Stage 2: Transactional Apply
+// ============================================================================
+
+/**
+ * Step identifiers for the apply operation.
+ * Each step is idempotent and independently resumable.
+ */
+export type ApplyStepId =
+  | 'header'
+  | 'scaffold'
+  | 'move-packages'
+  | 'write-root'
+  | 'write-extras'
+  | 'install';
+
+/**
+ * A single entry in the operation log (JSONL)
+ */
+export interface OperationLogEntry {
+  /** Step identifier */
+  id: ApplyStepId | string;
+  /** Status of the step */
+  status: 'started' | 'completed' | 'failed';
+  /** ISO-8601 timestamp */
+  timestamp: string;
+  /** Hash of the plan file (header entry only) */
+  planHash?: string;
+  /** Inputs consumed by this step */
+  inputs?: string[];
+  /** Outputs produced by this step */
+  outputs?: string[];
+  /** Duration in milliseconds */
+  durationMs?: number;
+  /** Error message if failed */
+  error?: string;
+}
+
+/**
+ * Source entry in the plan file. Describes a repo to place into the monorepo.
+ */
+export interface PlanSource {
+  /** Name used as the package directory name */
+  name: string;
+  /** Absolute path to the repo directory (already cloned/copied) */
+  path: string;
+}
+
+/**
+ * A file to write into the output directory
+ */
+export interface PlanFile {
+  /** Relative path within the output directory */
+  relativePath: string;
+  /** Content to write */
+  content: string;
+}
+
+/**
+ * The complete plan for the apply command.
+ * Schema for --plan <file>.json
+ */
+export interface ApplyPlan {
+  /** Schema version for forward compatibility */
+  version: 1;
+  /** Sources to move into packages/ */
+  sources: PlanSource[];
+  /** Name of the packages subdirectory */
+  packagesDir: string;
+  /** Root package.json to write */
+  rootPackageJson: Record<string, unknown>;
+  /** Additional files to write (workspace configs, tool configs, etc.) */
+  files: PlanFile[];
+  /** Whether to run package manager install */
+  install: boolean;
+  /** Install command to run (e.g., "pnpm install") */
+  installCommand?: string;
+}
+
+/**
+ * Options for the apply command (internal)
+ */
+export interface ApplyOptions {
+  /** Absolute path to the final output directory */
+  output: string;
+  /** Absolute path to the plan file */
+  planPath: string;
+  /** Resume from existing staging directory */
+  resume: boolean;
+  /** Clean up staging artifacts */
+  cleanup: boolean;
+  /** Show what would be done without executing */
+  dryRun: boolean;
+  /** Verbose output */
+  verbose: boolean;
+}

@@ -3,6 +3,7 @@ import { Command } from 'commander';
 import { mergeCommand } from './commands/merge.js';
 import { initCommand } from './commands/init.js';
 import { analyzeCommand } from './commands/analyze.js';
+import { applyCommand } from './commands/apply.js';
 
 const program = new Command();
 
@@ -74,5 +75,16 @@ program
   .option('-v, --verbose', 'Verbose output')
   .option('--json', 'Output as JSON')
   .action(analyzeCommand);
+
+program
+  .command('apply')
+  .description('Apply a migration plan to create a monorepo (transactional)')
+  .requiredOption('--plan <file>', 'Path to migration plan JSON file')
+  .option('-o, --out <dir>', 'Output directory', './monorepo')
+  .option('--resume', 'Resume an interrupted apply from staging directory')
+  .option('--cleanup', 'Remove staging artifacts from a previous interrupted run')
+  .option('--dry-run', 'Show what would be done without executing')
+  .option('-v, --verbose', 'Verbose output')
+  .action(applyCommand);
 
 program.parse();
