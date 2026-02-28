@@ -581,3 +581,116 @@ export interface VerifyResult {
   /** ISO-8601 timestamp */
   timestamp: string;
 }
+
+// ============================================================================
+// Stage 7: Pre-migration Preparation
+// ============================================================================
+
+/**
+ * Category of a preparation checklist item
+ */
+export type PrepCheckCategory = 'node-version' | 'build-script' | 'package-manager' | 'engines' | 'general';
+
+/**
+ * Severity of a preparation checklist item
+ */
+export type PrepCheckSeverity = 'info' | 'warn' | 'action-required';
+
+/**
+ * A single item on the pre-migration checklist
+ */
+export interface PrepCheckItem {
+  /** Repository name, or null for cross-repo items */
+  repoName: string | null;
+  /** Category of the check */
+  category: PrepCheckCategory;
+  /** Short title */
+  title: string;
+  /** Detailed description */
+  description: string;
+  /** Whether this item was auto-fixed by a patch */
+  autoFixed: boolean;
+  /** Severity level */
+  severity: PrepCheckSeverity;
+}
+
+/**
+ * Type of patch that can be generated
+ */
+export type PrepPatchType = 'node-version' | 'build-script' | 'package-manager-field';
+
+/**
+ * A unified diff patch for a single file
+ */
+export interface PrepPatch {
+  /** Patch filename, e.g. "repo-a/nvmrc.patch" */
+  filename: string;
+  /** Unified diff content */
+  content: string;
+  /** Repository this patch applies to */
+  repoName: string;
+  /** Target file path within the repo, e.g. ".nvmrc" */
+  targetFile: string;
+  /** Type of patch */
+  patchType: PrepPatchType;
+}
+
+/**
+ * Analysis of a single repo for preparation
+ */
+export interface RepoPrepAnalysis {
+  /** Repository name */
+  repoName: string;
+  /** Absolute path to the repo */
+  repoPath: string;
+  /** Content of .nvmrc file, or null if missing */
+  nvmrc: string | null;
+  /** Content of .node-version file, or null if missing */
+  nodeVersion: string | null;
+  /** Value of engines.node in package.json, or null if missing */
+  enginesNode: string | null;
+  /** Whether the repo has a build script */
+  hasBuildScript: boolean;
+  /** The existing build script command, or null */
+  existingBuildScript: string | null;
+  /** The existing packageManager field value, or null */
+  existingPackageManagerField: string | null;
+  /** The full package.json content */
+  packageJson: Record<string, unknown>;
+}
+
+/**
+ * Complete analysis result for all repos
+ */
+export interface PrepareAnalysis {
+  /** Per-repo analysis results */
+  repos: RepoPrepAnalysis[];
+  /** Checklist items generated from analysis */
+  checklist: PrepCheckItem[];
+  /** Patches generated for auto-fixable items */
+  patches: PrepPatch[];
+  /** Target Node.js version, if specified */
+  targetNodeVersion: string | null;
+  /** Target package manager, if specified */
+  targetPackageManager: string | null;
+}
+
+/**
+ * Configuration stored in .monotize/config.json inside a prep workspace
+ */
+export interface PrepWorkspaceConfig {
+  /** Schema version */
+  version: 1;
+  /** ISO-8601 creation timestamp */
+  createdAt: string;
+  /** Names of repos that have been prepared */
+  preparedRepos: string[];
+  /** Target Node.js version used for preparation */
+  targetNodeVersion: string | null;
+  /** Target package manager used for preparation */
+  targetPackageManager: string | null;
+  /** Branch name used for preparation commits */
+  branchName: string;
+  /** Filenames of patches that were applied */
+  appliedPatches: string[];
+}

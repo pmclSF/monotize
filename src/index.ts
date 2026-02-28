@@ -6,6 +6,7 @@ import { analyzeCommand } from './commands/analyze.js';
 import { applyCommand } from './commands/apply.js';
 import { planCommand } from './commands/plan.js';
 import { verifyCommand } from './commands/verify.js';
+import { prepareCommand } from './commands/prepare.js';
 
 const program = new Command();
 
@@ -133,5 +134,17 @@ program
   .option('--json', 'Output as JSON')
   .option('-v, --verbose', 'Verbose output')
   .action(verifyCommand);
+
+program
+  .command('prepare')
+  .description('Analyze repos and generate pre-migration patches and checklist')
+  .argument('<repos...>', 'Repositories to prepare')
+  .option('--node-version <ver>', 'Target Node.js version (e.g. "20")')
+  .option('--package-manager <pm>', 'Target package manager (pnpm, yarn, npm)')
+  .option('--patch-only', 'Emit patches only (default mode)')
+  .option('--out-dir <dir>', 'Write patches and checklist to directory')
+  .option('--prep-workspace <dir>', 'Clone repos, apply patches, commit on branch')
+  .option('-v, --verbose', 'Verbose output')
+  .action(prepareCommand);
 
 program.parse();
