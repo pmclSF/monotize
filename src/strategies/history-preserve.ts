@@ -31,6 +31,14 @@ async function isGitRepo(dir: string): Promise<boolean> {
 }
 
 /**
+ * Sanitize a string for safe use in a Python bytes literal.
+ * Removes any characters that could break out of the string.
+ */
+function sanitizeForPython(s: string): string {
+  return s.replace(/[^a-zA-Z0-9 _\-\[\]().,:;!?#@&+=]/g, '');
+}
+
+/**
  * Preserve git history using git filter-repo
  * Rewrites paths and optionally prefixes commit messages
  */
@@ -46,12 +54,14 @@ async function preserveHistoryWithFilterRepo(
   await copyDir(repoPath, workingDir);
 
   try {
-    // Rewrite paths to be under targetDir
-    const filterArgs = ['filter-repo', '--force', `--path-rename`, `:${targetDir}/`];
+    // Validate targetDir doesn't contain dangerous characters
+    const safeTargetDir = targetDir.replace(/[^a-zA-Z0-9_\-./]/g, '');
+    const filterArgs = ['filter-repo', '--force', '--path-rename', `:${safeTargetDir}/`];
 
     // Add commit message prefix if specified
     if (commitPrefix) {
-      filterArgs.push('--message-callback', `return b"${commitPrefix}" + message`);
+      const safePrefix = sanitizeForPython(commitPrefix);
+      filterArgs.push('--message-callback', `return b"${safePrefix}" + message`);
     }
 
     execFileSync('git', filterArgs, {

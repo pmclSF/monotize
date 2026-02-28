@@ -1,4 +1,4 @@
-import { exec } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createLogger } from '../utils/logger.js';
@@ -27,7 +27,7 @@ export async function uiCommand(options: CLIUiOptions): Promise<void> {
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
   const uiDistDir = path.resolve(__dirname, '../ui/dist');
 
-  const server = createServer({ port, staticDir: uiDistDir });
+  const { server, token } = createServer({ port, staticDir: uiDistDir });
 
   server.on('listening', () => {
     const addr = server.address();
@@ -35,16 +35,21 @@ export async function uiCommand(options: CLIUiOptions): Promise<void> {
     const url = `http://localhost:${actualPort}`;
 
     logger.success(`Server running at ${url}`);
+    logger.info(`Auth token: ${token}`);
+    logger.info('Pass this token as Authorization: Bearer <token> for API requests');
     logger.info('Press Ctrl+C to stop');
 
     if (options.open) {
+      const browserUrl = `${url}?token=${token}`;
       const cmd =
         process.platform === 'darwin'
           ? 'open'
           : process.platform === 'win32'
             ? 'start'
             : 'xdg-open';
-      exec(`${cmd} ${url}`);
+      execFile(cmd, [browserUrl], (err) => {
+        if (err) logger.debug(`Failed to open browser: ${err.message}`);
+      });
     }
   });
 
