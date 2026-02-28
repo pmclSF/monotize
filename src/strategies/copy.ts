@@ -2,6 +2,7 @@ import path from 'node:path';
 import simpleGit from 'simple-git';
 import type { RepoSource, Logger } from '../types/index.js';
 import { copyDir, ensureDir, pathExists, removeDir } from '../utils/fs.js';
+import { redactUrl } from '../utils/redact.js';
 
 /**
  * Options for cloning/copying repositories
@@ -75,6 +76,7 @@ function isTransientError(error: unknown): boolean {
  */
 function getCloneErrorMessage(error: unknown, url: string): string {
   const baseMessage = error instanceof Error ? error.message : String(error);
+  const safeUrl = redactUrl(url);
 
   // Authentication errors
   if (
@@ -84,9 +86,9 @@ function getCloneErrorMessage(error: unknown, url: string): string {
     baseMessage.includes('401') ||
     baseMessage.includes('403')
   ) {
-    return `Authentication failed for ${url}. If this is a private repository, ensure you have:\n` +
+    return `Authentication failed for ${safeUrl}. If this is a private repository, ensure you have:\n` +
       '  - Set up SSH keys: https://docs.github.com/en/authentication/connecting-to-github-with-ssh\n' +
-      '  - Or use a personal access token in the URL';
+      '  - Or use a personal access token via GITHUB_TOKEN env var';
   }
 
   // Repository not found
@@ -95,7 +97,7 @@ function getCloneErrorMessage(error: unknown, url: string): string {
     baseMessage.includes('does not exist') ||
     baseMessage.includes('404')
   ) {
-    return `Repository not found: ${url}. Check that:\n` +
+    return `Repository not found: ${safeUrl}. Check that:\n` +
       '  - The repository name is spelled correctly\n' +
       '  - You have access to view the repository\n' +
       '  - The repository has not been deleted or renamed';
@@ -106,15 +108,15 @@ function getCloneErrorMessage(error: unknown, url: string): string {
     baseMessage.includes('Could not resolve host') ||
     baseMessage.includes('ENOTFOUND')
   ) {
-    return `Cannot reach repository host for ${url}. Check your internet connection.`;
+    return `Cannot reach repository host for ${safeUrl}. Check your internet connection.`;
   }
 
   if (baseMessage.includes('Connection refused') || baseMessage.includes('ECONNREFUSED')) {
-    return `Connection refused when cloning ${url}. The server may be down or blocking connections.`;
+    return `Connection refused when cloning ${safeUrl}. The server may be down or blocking connections.`;
   }
 
   if (baseMessage.includes('timed out') || baseMessage.includes('ETIMEDOUT')) {
-    return `Clone operation timed out for ${url}. Try:\n` +
+    return `Clone operation timed out for ${safeUrl}. Try:\n` +
       '  - Checking your internet connection\n' +
       '  - Increasing the timeout with --clone-timeout flag\n' +
       '  - Trying again later if the server is slow';
@@ -122,11 +124,11 @@ function getCloneErrorMessage(error: unknown, url: string): string {
 
   // Empty repository
   if (baseMessage.includes('empty repository') || baseMessage.includes('no commits')) {
-    return `Repository ${url} appears to be empty (no commits). Cannot clone an empty repository.`;
+    return `Repository ${safeUrl} appears to be empty (no commits). Cannot clone an empty repository.`;
   }
 
-  // Default: include original message
-  return `Failed to clone ${url}: ${baseMessage}`;
+  // Default: include original message (redact tokens from error too)
+  return `Failed to clone ${safeUrl}: ${redactUrl(baseMessage)}`;
 }
 
 /**
@@ -157,11 +159,11 @@ async function cloneRepo(
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      logger.debug(`Cloning ${url} to ${targetDir} (attempt ${attempt}/${maxRetries})`);
+      logger.debug(`Cloning ${redactUrl(url)} to ${targetDir} (attempt ${attempt}/${maxRetries})`);
 
       await git.clone(url, targetDir, ['--depth', '1']);
 
-      logger.debug(`Successfully cloned ${url}`);
+      logger.debug(`Successfully cloned ${redactUrl(url)}`);
       return;
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));

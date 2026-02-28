@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import {
   getPackageManagerVersion,
   isPackageManagerInstalled,
@@ -13,9 +13,9 @@ import {
   getPackageManagerDisplayName,
 } from '../../../src/strategies/package-manager.js';
 
-// Mock execSync
+// Mock execFileSync
 vi.mock('node:child_process', () => ({
-  execSync: vi.fn(),
+  execFileSync: vi.fn(),
 }));
 
 describe('Package Manager Strategy', () => {
@@ -25,27 +25,27 @@ describe('Package Manager Strategy', () => {
 
   describe('getPackageManagerVersion', () => {
     it('should return version for pnpm', () => {
-      vi.mocked(execSync).mockReturnValue('9.1.0\n');
+      vi.mocked(execFileSync).mockReturnValue('9.1.0\n');
       expect(getPackageManagerVersion('pnpm')).toBe('9.1.0');
     });
 
     it('should return version for yarn', () => {
-      vi.mocked(execSync).mockReturnValue('1.22.22\n');
+      vi.mocked(execFileSync).mockReturnValue('1.22.22\n');
       expect(getPackageManagerVersion('yarn')).toBe('1.22.22');
     });
 
     it('should return version for yarn-berry', () => {
-      vi.mocked(execSync).mockReturnValue('4.0.0\n');
+      vi.mocked(execFileSync).mockReturnValue('4.0.0\n');
       expect(getPackageManagerVersion('yarn-berry')).toBe('4.0.0');
     });
 
     it('should return version for npm', () => {
-      vi.mocked(execSync).mockReturnValue('10.0.0\n');
+      vi.mocked(execFileSync).mockReturnValue('10.0.0\n');
       expect(getPackageManagerVersion('npm')).toBe('10.0.0');
     });
 
     it('should return fallback version on error', () => {
-      vi.mocked(execSync).mockImplementation(() => {
+      vi.mocked(execFileSync).mockImplementation(() => {
         throw new Error('Command not found');
       });
       expect(getPackageManagerVersion('pnpm')).toBe('9.0.0');
@@ -57,34 +57,34 @@ describe('Package Manager Strategy', () => {
 
   describe('isPackageManagerInstalled', () => {
     it('should return true when package manager is installed', () => {
-      vi.mocked(execSync).mockReturnValue('9.1.0');
+      vi.mocked(execFileSync).mockReturnValue('9.1.0');
       expect(isPackageManagerInstalled('pnpm')).toBe(true);
     });
 
     it('should return false when package manager is not installed', () => {
-      vi.mocked(execSync).mockImplementation(() => {
+      vi.mocked(execFileSync).mockImplementation(() => {
         throw new Error('Command not found');
       });
       expect(isPackageManagerInstalled('pnpm')).toBe(false);
     });
 
     it('should use yarn command for yarn-berry', () => {
-      vi.mocked(execSync).mockReturnValue('4.0.0');
+      vi.mocked(execFileSync).mockReturnValue('4.0.0');
       isPackageManagerInstalled('yarn-berry');
-      expect(execSync).toHaveBeenCalledWith('yarn --version', { stdio: 'pipe' });
+      expect(execFileSync).toHaveBeenCalledWith('yarn', ['--version'], { stdio: 'pipe' });
     });
   });
 
   describe('validatePackageManager', () => {
     it('should return valid when package manager is installed', () => {
-      vi.mocked(execSync).mockReturnValue('9.1.0');
+      vi.mocked(execFileSync).mockReturnValue('9.1.0');
       const result = validatePackageManager('pnpm');
       expect(result.valid).toBe(true);
       expect(result.error).toBeUndefined();
     });
 
     it('should return invalid with error when not installed', () => {
-      vi.mocked(execSync).mockImplementation(() => {
+      vi.mocked(execFileSync).mockImplementation(() => {
         throw new Error('Command not found');
       });
       const result = validatePackageManager('pnpm');
@@ -95,14 +95,14 @@ describe('Package Manager Strategy', () => {
 
   describe('createPackageManagerConfig', () => {
     beforeEach(() => {
-      vi.mocked(execSync).mockReturnValue('1.0.0\n');
+      vi.mocked(execFileSync).mockReturnValue('1.0.0\n');
     });
 
     describe('pnpm', () => {
       it('should create correct config', () => {
         const config = createPackageManagerConfig('pnpm');
         expect(config.type).toBe('pnpm');
-        expect(config.installCommand).toBe('pnpm install');
+        expect(config.installCommand).toBe('pnpm install --ignore-scripts');
         expect(config.lockFile).toBe('pnpm-lock.yaml');
         expect(config.workspaceProtocol).toBe('workspace:*');
       });
@@ -118,7 +118,7 @@ describe('Package Manager Strategy', () => {
       it('should create correct config', () => {
         const config = createPackageManagerConfig('yarn');
         expect(config.type).toBe('yarn');
-        expect(config.installCommand).toBe('yarn install');
+        expect(config.installCommand).toBe('yarn install --ignore-scripts');
         expect(config.lockFile).toBe('yarn.lock');
         expect(config.workspaceProtocol).toBe('*');
       });
@@ -134,7 +134,7 @@ describe('Package Manager Strategy', () => {
       it('should create correct config', () => {
         const config = createPackageManagerConfig('yarn-berry');
         expect(config.type).toBe('yarn-berry');
-        expect(config.installCommand).toBe('yarn install');
+        expect(config.installCommand).toBe('yarn install --ignore-scripts');
         expect(config.lockFile).toBe('yarn.lock');
         expect(config.workspaceProtocol).toBe('workspace:*');
       });
@@ -156,7 +156,7 @@ describe('Package Manager Strategy', () => {
       it('should create correct config', () => {
         const config = createPackageManagerConfig('npm');
         expect(config.type).toBe('npm');
-        expect(config.installCommand).toBe('npm install');
+        expect(config.installCommand).toBe('npm install --ignore-scripts');
         expect(config.lockFile).toBe('package-lock.json');
         expect(config.workspaceProtocol).toBe('*');
       });
@@ -171,7 +171,7 @@ describe('Package Manager Strategy', () => {
 
   describe('generateWorkspaceFiles', () => {
     beforeEach(() => {
-      vi.mocked(execSync).mockReturnValue('1.0.0\n');
+      vi.mocked(execFileSync).mockReturnValue('1.0.0\n');
     });
 
     it('should generate pnpm-workspace.yaml for pnpm', () => {
@@ -197,7 +197,7 @@ describe('Package Manager Strategy', () => {
 
   describe('getWorkspacesConfig', () => {
     beforeEach(() => {
-      vi.mocked(execSync).mockReturnValue('1.0.0\n');
+      vi.mocked(execFileSync).mockReturnValue('1.0.0\n');
     });
 
     it('should return undefined for pnpm', () => {
@@ -223,7 +223,7 @@ describe('Package Manager Strategy', () => {
 
   describe('getGitignoreEntries', () => {
     beforeEach(() => {
-      vi.mocked(execSync).mockReturnValue('1.0.0\n');
+      vi.mocked(execFileSync).mockReturnValue('1.0.0\n');
     });
 
     it('should return pnpm-specific entries', () => {
@@ -251,7 +251,7 @@ describe('Package Manager Strategy', () => {
 
   describe('getPackageManagerField', () => {
     beforeEach(() => {
-      vi.mocked(execSync).mockReturnValue('9.1.0\n');
+      vi.mocked(execFileSync).mockReturnValue('9.1.0\n');
     });
 
     it('should return correct format for pnpm', () => {

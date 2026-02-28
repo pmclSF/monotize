@@ -167,6 +167,7 @@ Supports `--resume` (skip completed steps), `--cleanup` (remove staging artifact
 | `utils/validation.ts` | local path checks | — | — |
 | `utils/prompts.ts` | stdin | — | — |
 | `utils/logger.ts` | — | stdout/stderr | — |
+| `utils/redact.ts` | — | — | — (pure logic) |
 | `utils/operation-log.ts` | JSONL log | JSONL log | — |
 
 ## IO Boundaries
@@ -192,10 +193,19 @@ Supports `--resume` (skip completed steps), `--cleanup` (remove staging artifact
 - `commands/merge.ts` → PM install fetches from npm registry (skippable with `--no-install`)
 
 ### External commands
-- `git clone` (with timeout + retry)
+All external commands use `execFileSync(cmd, args)` (no shell interpolation) to prevent injection.
+
+- `git clone` (via `simple-git` library, with timeout + retry)
 - `git init`
 - `git filter-repo` / `git subtree` (history preservation)
-- Package manager CLI (`pnpm install`, `yarn install`, `npm install`)
+- Package manager CLI (e.g. `pnpm install --ignore-scripts`)
+
+### Security measures
+
+- **No shell interpolation**: All `child_process` calls in `src/` use `execFileSync(cmd, args)` instead of `execSync(string)`, preventing shell injection via repo names, paths, or URLs.
+- **Lifecycle scripts disabled**: All install commands include `--ignore-scripts` by default to prevent untrusted repos from executing arbitrary code during `npm/yarn/pnpm install`.
+- **Credential redaction** (`utils/redact.ts`): URLs containing embedded tokens (`https://user:token@host`) are stripped to `https://***@host` before logging or error output. Known token patterns (GitHub PATs, GitLab PATs, npm tokens) are also redacted.
+- **Tokens are env-only**: Authentication is handled through environment variables (`GITHUB_TOKEN`) and SSH keys. The tool never writes tokens to disk (plan files, operation logs, generated configs).
 
 ## Key Types
 

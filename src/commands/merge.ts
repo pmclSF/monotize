@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import chalk from 'chalk';
 import type {
   MergeOptions,
@@ -344,7 +344,7 @@ export async function mergeCommand(repos: string[], options: CLIOptions): Promis
       logger.info('Preserving git history...');
       // Initialize git in output directory
       try {
-        execSync('git init', {
+        execFileSync('git', ['init'], {
           cwd: mergeOptions.output,
           stdio: 'pipe',
         });
@@ -557,7 +557,8 @@ dist/
     if (mergeOptions.install) {
       logger.info('Installing dependencies...');
       try {
-        execSync(pmConfig.installCommand, {
+        const [cmd, ...args] = pmConfig.installCommand.split(' ');
+        execFileSync(cmd, args, {
           cwd: mergeOptions.output,
           stdio: mergeOptions.verbose ? 'inherit' : 'pipe',
         });

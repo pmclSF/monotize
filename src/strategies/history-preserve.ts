@@ -1,17 +1,14 @@
-import { execSync, exec } from 'node:child_process';
-import { promisify } from 'node:util';
+import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import type { HistoryPreserveOptions } from '../types/index.js';
 import { ensureDir, copyDir } from '../utils/fs.js';
-
-const execAsync = promisify(exec);
 
 /**
  * Check if git filter-repo is available
  */
 export async function checkGitFilterRepo(): Promise<boolean> {
   try {
-    await execAsync('git filter-repo --version');
+    execFileSync('git', ['filter-repo', '--version'], { stdio: 'pipe' });
     return true;
   } catch {
     return false;
@@ -23,7 +20,7 @@ export async function checkGitFilterRepo(): Promise<boolean> {
  */
 async function isGitRepo(dir: string): Promise<boolean> {
   try {
-    execSync('git rev-parse --git-dir', {
+    execFileSync('git', ['rev-parse', '--git-dir'], {
       cwd: dir,
       stdio: 'pipe',
     });
@@ -50,18 +47,14 @@ async function preserveHistoryWithFilterRepo(
 
   try {
     // Rewrite paths to be under targetDir
-    const pathFilter = `--path-rename :${targetDir}/`;
-
-    let filterCommand = `git filter-repo --force ${pathFilter}`;
+    const filterArgs = ['filter-repo', '--force', `--path-rename`, `:${targetDir}/`];
 
     // Add commit message prefix if specified
     if (commitPrefix) {
-      // Escape the prefix for shell use
-      const escapedPrefix = commitPrefix.replace(/'/g, "'\\''");
-      filterCommand += ` --message-callback 'return b"${escapedPrefix}" + message'`;
+      filterArgs.push('--message-callback', `return b"${commitPrefix}" + message`);
     }
 
-    execSync(filterCommand, {
+    execFileSync('git', filterArgs, {
       cwd: workingDir,
       stdio: 'pipe',
     });
@@ -71,7 +64,7 @@ async function preserveHistoryWithFilterRepo(
 
     // Remove existing remote if it exists
     try {
-      execSync(`git remote remove ${remoteName}`, {
+      execFileSync('git', ['remote', 'remove', remoteName], {
         cwd: outputPath,
         stdio: 'pipe',
       });
@@ -79,32 +72,32 @@ async function preserveHistoryWithFilterRepo(
       // Remote doesn't exist, which is fine
     }
 
-    execSync(`git remote add ${remoteName} ${workingDir}`, {
+    execFileSync('git', ['remote', 'add', remoteName, workingDir], {
       cwd: outputPath,
       stdio: 'pipe',
     });
 
-    execSync(`git fetch ${remoteName}`, {
+    execFileSync('git', ['fetch', remoteName], {
       cwd: outputPath,
       stdio: 'pipe',
     });
 
     // Merge the history
     try {
-      execSync(`git merge ${remoteName}/main --allow-unrelated-histories --no-edit`, {
+      execFileSync('git', ['merge', `${remoteName}/main`, '--allow-unrelated-histories', '--no-edit'], {
         cwd: outputPath,
         stdio: 'pipe',
       });
     } catch {
       // Try with master branch
       try {
-        execSync(`git merge ${remoteName}/master --allow-unrelated-histories --no-edit`, {
+        execFileSync('git', ['merge', `${remoteName}/master`, '--allow-unrelated-histories', '--no-edit'], {
           cwd: outputPath,
           stdio: 'pipe',
         });
       } catch {
         // Try to find the default branch
-        const branches = execSync(`git branch -r`, {
+        const branches = execFileSync('git', ['branch', '-r'], {
           cwd: outputPath,
           encoding: 'utf-8',
         });
@@ -115,7 +108,7 @@ async function preserveHistoryWithFilterRepo(
           .find((b) => b.startsWith(`${remoteName}/`));
 
         if (remoteBranch) {
-          execSync(`git merge ${remoteBranch} --allow-unrelated-histories --no-edit`, {
+          execFileSync('git', ['merge', remoteBranch, '--allow-unrelated-histories', '--no-edit'], {
             cwd: outputPath,
             stdio: 'pipe',
           });
@@ -126,7 +119,7 @@ async function preserveHistoryWithFilterRepo(
     }
 
     // Clean up the remote
-    execSync(`git remote remove ${remoteName}`, {
+    execFileSync('git', ['remote', 'remove', remoteName], {
       cwd: outputPath,
       stdio: 'pipe',
     });
@@ -157,7 +150,7 @@ async function preserveHistoryWithSubtree(
 
   // Check if repo has commits
   try {
-    execSync('git rev-parse HEAD', {
+    execFileSync('git', ['rev-parse', 'HEAD'], {
       cwd: repoPath,
       stdio: 'pipe',
     });
@@ -172,7 +165,7 @@ async function preserveHistoryWithSubtree(
 
   // Remove existing remote if it exists
   try {
-    execSync(`git remote remove ${remoteName}`, {
+    execFileSync('git', ['remote', 'remove', remoteName], {
       cwd: outputPath,
       stdio: 'pipe',
     });
@@ -180,12 +173,12 @@ async function preserveHistoryWithSubtree(
     // Remote doesn't exist, which is fine
   }
 
-  execSync(`git remote add ${remoteName} ${repoPath}`, {
+  execFileSync('git', ['remote', 'add', remoteName, repoPath], {
     cwd: outputPath,
     stdio: 'pipe',
   });
 
-  execSync(`git fetch ${remoteName}`, {
+  execFileSync('git', ['fetch', remoteName], {
     cwd: outputPath,
     stdio: 'pipe',
   });
@@ -193,7 +186,7 @@ async function preserveHistoryWithSubtree(
   // Find the default branch
   let defaultBranch = 'main';
   try {
-    const branches = execSync(`git branch -r`, {
+    const branches = execFileSync('git', ['branch', '-r'], {
       cwd: outputPath,
       encoding: 'utf-8',
     });
@@ -219,32 +212,26 @@ async function preserveHistoryWithSubtree(
 
   // Use subtree add to merge with history
   try {
-    execSync(
-      `git subtree add --prefix="${targetDir}" ${remoteName} ${defaultBranch}`,
-      {
-        cwd: outputPath,
-        stdio: 'pipe',
-      }
-    );
+    execFileSync('git', ['subtree', 'add', `--prefix=${targetDir}`, remoteName, defaultBranch], {
+      cwd: outputPath,
+      stdio: 'pipe',
+    });
   } catch (error) {
     // Subtree may fail if there are conflicts, fall back to merge
     const errorMessage = error instanceof Error ? error.message : String(error);
 
     if (errorMessage.includes('refusing to merge unrelated histories')) {
-      execSync(
-        `git merge ${remoteName}/${defaultBranch} --allow-unrelated-histories --no-edit -s subtree`,
-        {
-          cwd: outputPath,
-          stdio: 'pipe',
-        }
-      );
+      execFileSync('git', ['merge', `${remoteName}/${defaultBranch}`, '--allow-unrelated-histories', '--no-edit', '-s', 'subtree'], {
+        cwd: outputPath,
+        stdio: 'pipe',
+      });
     } else {
       throw error;
     }
   }
 
   // Clean up the remote
-  execSync(`git remote remove ${remoteName}`, {
+  execFileSync('git', ['remote', 'remove', remoteName], {
     cwd: outputPath,
     stdio: 'pipe',
   });
@@ -270,20 +257,20 @@ export async function preserveHistory(
   // Check if output is a git repo
   if (!(await isGitRepo(outputPath))) {
     // Initialize git in output
-    execSync('git init', {
+    execFileSync('git', ['init'], {
       cwd: outputPath,
       stdio: 'pipe',
     });
 
     // Create initial commit if needed
     try {
-      execSync('git rev-parse HEAD', {
+      execFileSync('git', ['rev-parse', 'HEAD'], {
         cwd: outputPath,
         stdio: 'pipe',
       });
     } catch {
       // No commits yet, create an initial commit
-      execSync('git commit --allow-empty -m "Initial commit"', {
+      execFileSync('git', ['commit', '--allow-empty', '-m', 'Initial commit'], {
         cwd: outputPath,
         stdio: 'pipe',
       });
@@ -305,7 +292,7 @@ export async function preserveHistory(
  */
 export async function getCommitCount(repoPath: string): Promise<number> {
   try {
-    const result = execSync('git rev-list --count HEAD', {
+    const result = execFileSync('git', ['rev-list', '--count', 'HEAD'], {
       cwd: repoPath,
       encoding: 'utf-8',
     });
@@ -320,15 +307,18 @@ export async function getCommitCount(repoPath: string): Promise<number> {
  */
 export async function getContributors(repoPath: string): Promise<string[]> {
   try {
-    const result = execSync('git log --format="%aN <%aE>" | sort -u', {
+    const result = execFileSync('git', ['log', '--format=%aN <%aE>'], {
       cwd: repoPath,
       encoding: 'utf-8',
-      shell: '/bin/bash',
     });
-    return result
-      .trim()
-      .split('\n')
-      .filter((line) => line.length > 0);
+    // Deduplicate in JS instead of piping through `sort -u`
+    const contributors = new Set(
+      result
+        .trim()
+        .split('\n')
+        .filter((line) => line.length > 0)
+    );
+    return [...contributors].sort();
   } catch {
     return [];
   }

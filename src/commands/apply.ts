@@ -1,6 +1,6 @@
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import chalk from 'chalk';
 import fs from 'fs-extra';
 import type {
@@ -324,9 +324,10 @@ export async function applyCommand(options: CLIApplyOptions): Promise<void> {
     // Step 5: install
     if (plan.install) {
       const installOk = await executeStep('install', logPath, logEntries, signal, logger, async () => {
-        const cmd = plan.installCommand || 'pnpm install';
+        const cmd = plan.installCommand || 'pnpm install --ignore-scripts';
         logger.info(`Installing dependencies: ${cmd}`);
-        execSync(cmd, {
+        const [exe, ...args] = cmd.split(' ');
+        execFileSync(exe, args, {
           cwd: stagingDir,
           stdio: options.verbose ? 'inherit' : 'pipe',
         });
