@@ -24,7 +24,9 @@ interface CLIPrepareOptions {
   patchOnly?: boolean;
   outDir?: string;
   prepWorkspace?: string;
+  out?: string;
   verbose?: boolean;
+  json?: boolean;
 }
 
 /**
@@ -223,6 +225,20 @@ export async function prepareCommand(repos: string[], options: CLIPrepareOptions
 
       logger.log(formatHeader('Checklist'));
       logger.log(checklistMd);
+    }
+
+    // --out mode: write PreparationPlan JSON
+    if (options.out) {
+      const { writeJson: wj } = await import('../utils/fs.js');
+      const planOut = path.resolve(options.out);
+      const preparationPlan = {
+        schemaVersion: 1 as const,
+        createdAt: new Date().toISOString(),
+        checklist: analysis.checklist,
+        patches: analysis.patches,
+      };
+      await wj(planOut, preparationPlan);
+      logger.success(`PreparationPlan written to ${planOut}`);
     }
 
     // Cleanup temp dir if we created one

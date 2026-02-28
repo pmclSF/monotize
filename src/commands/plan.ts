@@ -11,7 +11,6 @@ import type {
 } from '../types/index.js';
 import { createLogger } from '../utils/logger.js';
 import {
-  createTempDir,
   removeDir,
   ensureDir,
   writeJson,

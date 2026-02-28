@@ -13,6 +13,8 @@ import { wizardRoute } from './routes/wizard.js';
 import { prepareRoute } from './routes/prepare.js';
 import { configureRoute } from './routes/configure.js';
 import { archiveRoute } from './routes/archive.js';
+import { addRoute } from './routes/add.js';
+import { migrateBranchRoute } from './routes/migrate-branch.js';
 
 /**
  * Create and start the HTTP + WebSocket server.
@@ -34,6 +36,8 @@ export function createServer(options: ServerOptions): http.Server {
   app.use('/api/prepare', prepareRoute(hub));
   app.use('/api/configure', configureRoute(hub));
   app.use('/api/archive', archiveRoute(hub));
+  app.use('/api/add', addRoute(hub));
+  app.use('/api/migrate-branch', migrateBranchRoute(hub));
 
   // Serve static UI assets if available
   if (options.staticDir) {

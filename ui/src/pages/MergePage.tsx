@@ -7,6 +7,7 @@ import { CliHint } from '../components/CliHint';
 import { LogStream } from '../components/LogStream';
 import { ExportButton } from '../components/ExportButton';
 import { SkipButton } from '../components/SkipButton';
+import { TreePreview } from '../components/TreePreview';
 
 interface MergePageProps {
   ws: UseWebSocketReturn;
@@ -58,7 +59,7 @@ export function MergePage({ ws, repos, options, onPlanPathChange, onComplete, on
     }
   };
 
-  const planResult = planOp.result as { planPath?: string; plan?: Record<string, unknown> } | null;
+  const planResult = planOp.result as { planPath?: string; plan?: Record<string, unknown>; operations?: Array<{ outputs?: string[] }> } | null;
   const applyResult = applyOp.result as { outputDir?: string; packageCount?: number } | null;
 
   // Auto-set plan path when plan completes
@@ -121,6 +122,17 @@ export function MergePage({ ws, repos, options, onPlanPathChange, onComplete, on
                   <h3>Plan JSON</h3>
                   <div className="json-viewer">{JSON.stringify(planResult.plan, null, 2)}</div>
                 </>
+              )}
+              {planResult?.operations && (
+                <div style={{ marginTop: 16 }}>
+                  <h4>Planned File Structure</h4>
+                  <TreePreview
+                    files={planResult.operations
+                      .filter((op: { outputs?: string[] }) => op.outputs)
+                      .flatMap((op: { outputs?: string[] }) => op.outputs!)}
+                    title="Monorepo Structure"
+                  />
+                </div>
               )}
               <button className="primary" onClick={() => setPhase('apply')} style={{ marginTop: '1rem' }}>
                 Proceed to Apply

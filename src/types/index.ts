@@ -363,6 +363,8 @@ export interface AnalyzeResult {
   hotspots?: DependencyHotspot[];
   /** Categorized findings with confidence */
   findings?: AnalysisFindings;
+  /** Extended analysis from Stage 12 analyzers */
+  extendedAnalysis?: ExtendedAnalysis;
 }
 
 /**
@@ -736,4 +738,390 @@ export interface WizardState {
 export interface ConfigureResult {
   scaffoldedFiles: Array<{ relativePath: string; description: string }>;
   skippedConfigs: Array<{ name: string; reason: string }>;
+}
+
+// ============================================================================
+// Stage 11: Full Lifecycle Plan Types
+// ============================================================================
+
+/**
+ * Base interface for all plan artifacts
+ */
+export interface PlanBase {
+  /** Schema version for forward compatibility */
+  schemaVersion: 1;
+  /** ISO-8601 creation timestamp */
+  createdAt: string;
+  /** Fields that were redacted (e.g. tokens, paths) */
+  redactedFields?: string[];
+}
+
+/**
+ * A decision made during plan generation
+ */
+export interface PlanDecision {
+  /** Unique identifier */
+  id: string;
+  /** Kind of decision (version-conflict, file-collision, etc.) */
+  kind: string;
+  /** The chosen resolution */
+  chosen: string;
+  /** Other possible resolutions */
+  alternatives: string[];
+}
+
+/**
+ * A discrete operation within a plan
+ */
+export interface PlanOperation {
+  /** Unique identifier */
+  id: string;
+  /** Operation type (copy, write, move, exec, api-call, etc.) */
+  type: string;
+  /** Human-readable description */
+  description: string;
+  /** Input paths or references */
+  inputs: string[];
+  /** Output paths or references */
+  outputs: string[];
+}
+
+/**
+ * PreparationPlan wraps PrepareAnalysis into a serializable plan artifact
+ */
+export interface PreparationPlan extends PlanBase {
+  /** Checklist items from preparation analysis */
+  checklist: PrepCheckItem[];
+  /** Patches generated for auto-fixable items */
+  patches: PrepPatch[];
+  /** Optional workspace clone + apply actions */
+  workspaceCloneActions?: Array<{
+    repoName: string;
+    branch: string;
+    patchFiles: string[];
+  }>;
+}
+
+/**
+ * AddPlan for adding a repo to an existing monorepo
+ */
+export interface AddPlan extends PlanBase {
+  /** Source repository being added */
+  sourceRepo: RepoSource;
+  /** Path to target monorepo */
+  targetMonorepo: string;
+  /** Packages subdirectory */
+  packagesDir: string;
+  /** Analysis of the addition */
+  analysis: AnalyzeResult;
+  /** Decisions made during planning */
+  decisions: PlanDecision[];
+  /** Operations to execute */
+  operations: PlanOperation[];
+}
+
+/**
+ * ArchivePlan for deprecating old repositories
+ */
+export interface ArchivePlan extends PlanBase {
+  /** Repositories to archive */
+  repos: Array<{
+    name: string;
+    url: string;
+    readmePatch: string;
+  }>;
+  /** URL of the monorepo these repos migrated to */
+  monorepoUrl: string;
+  /** Optional GitHub API operations (require token) */
+  apiOperations?: Array<{
+    repo: string;
+    action: 'archive' | 'update-description';
+  }>;
+}
+
+/**
+ * Strategy for branch migration
+ */
+export type BranchMigrateStrategy = 'subtree' | 'replay';
+
+/**
+ * BranchPlan for migrating branches between repos
+ */
+export interface BranchPlan extends PlanBase {
+  /** Branch name to migrate */
+  branch: string;
+  /** Source repository */
+  sourceRepo: string;
+  /** Target monorepo */
+  targetMonorepo: string;
+  /** Migration strategy */
+  strategy: BranchMigrateStrategy;
+  /** Operations to execute */
+  operations: PlanOperation[];
+  /** Dry-run report with estimates */
+  dryRunReport?: {
+    commitCount: number;
+    estimatedTime: string;
+    contributors: string[];
+  };
+}
+
+/**
+ * Options for the add command
+ */
+export interface AddCommandOptions {
+  /** Path to target monorepo */
+  to: string;
+  /** Packages subdirectory */
+  packagesDir: string;
+  /** Output path for plan JSON */
+  out?: string;
+  /** Apply immediately after planning */
+  apply?: boolean;
+  /** Conflict resolution strategy */
+  conflictStrategy: ConflictStrategy;
+  /** Verbose output */
+  verbose?: boolean;
+  /** Package manager */
+  packageManager: PackageManagerType;
+}
+
+/**
+ * Options for the archive command
+ */
+export interface ArchiveCommandOptions {
+  /** URL of the monorepo */
+  monorepoUrl: string;
+  /** Output path for plan JSON */
+  out?: string;
+  /** Apply immediately (requires token) */
+  apply?: boolean;
+  /** Read GitHub token from environment */
+  tokenFromEnv?: boolean;
+  /** Verbose output */
+  verbose?: boolean;
+}
+
+/**
+ * Options for the migrate-branch command
+ */
+export interface MigrateBranchCommandOptions {
+  /** Source repository */
+  from: string;
+  /** Target monorepo */
+  to: string;
+  /** Migration strategy */
+  strategy: BranchMigrateStrategy;
+  /** Output path for plan JSON */
+  out?: string;
+  /** Apply immediately */
+  apply?: boolean;
+  /** Verbose output */
+  verbose?: boolean;
+}
+
+// ============================================================================
+// Stage 12: Extended Analysis Types
+// ============================================================================
+
+/**
+ * Severity of an analysis finding
+ */
+export type FindingSeverity = 'info' | 'warn' | 'error' | 'critical';
+
+/**
+ * Confidence level for a finding
+ */
+export type FindingConfidence = 'high' | 'medium' | 'low';
+
+/**
+ * Evidence for an analysis finding
+ */
+export interface FindingEvidence {
+  /** File path where evidence was found */
+  path: string;
+  /** Line number, if applicable */
+  line?: number;
+  /** Code snippet or content */
+  snippet?: string;
+}
+
+/**
+ * A single analysis finding with actionable information
+ */
+export interface AnalysisFinding {
+  /** Unique identifier (e.g. 'env-node-mismatch') */
+  id: string;
+  /** Human-readable title */
+  title: string;
+  /** Severity level */
+  severity: FindingSeverity;
+  /** Confidence in this finding */
+  confidence: FindingConfidence;
+  /** Supporting evidence */
+  evidence: FindingEvidence[];
+  /** Suggested action to resolve */
+  suggestedAction: string;
+}
+
+/**
+ * Migration risk classification
+ */
+export type RiskClassification = 'straightforward' | 'needs-decisions' | 'complex';
+
+/**
+ * Summary of migration risk
+ */
+export interface RiskSummary {
+  /** Overall classification */
+  classification: RiskClassification;
+  /** Reasons for this classification */
+  reasons: string[];
+  /** Top findings driving the classification */
+  topFindings: AnalysisFinding[];
+}
+
+/**
+ * Extended analysis covering environment, tooling, CI, publishing, and risks
+ */
+export interface ExtendedAnalysis {
+  /** Node.js version signals and mismatches */
+  environment: AnalysisFinding[];
+  /** Package manager detection and inconsistencies */
+  packageManager: AnalysisFinding[];
+  /** TypeScript, lint, format, test tool detection */
+  tooling: AnalysisFinding[];
+  /** CI/CD workflow systems and conflicts */
+  ci: AnalysisFinding[];
+  /** Publishing configuration and recommendations */
+  publishing: AnalysisFinding[];
+  /** Repository risks (submodules, LFS, large files, case collisions) */
+  repoRisks: AnalysisFinding[];
+  /** Overall risk summary */
+  riskSummary: RiskSummary;
+}
+
+// ============================================================================
+// Stage 14: Configure Engine Types
+// ============================================================================
+
+/**
+ * A file patch in a configuration plan
+ */
+export interface ConfigPatch {
+  /** File path relative to monorepo root */
+  path: string;
+  /** Content before (null for new files) */
+  before?: string;
+  /** Content after */
+  after: string;
+  /** Human-readable description */
+  description: string;
+}
+
+/**
+ * Configuration plan for workspace scaffolding
+ */
+export interface ConfigPlan extends PlanBase {
+  /** File patches to apply */
+  patches: ConfigPatch[];
+  /** Warnings for configs that can't be safely merged */
+  warnings: Array<{
+    config: string;
+    reason: string;
+    suggestion: string;
+  }>;
+}
+
+// ============================================================================
+// Stage 15: Dependency Enforcement Types
+// ============================================================================
+
+/**
+ * Result of dependency enforcement generation
+ */
+export interface DependencyEnforcementResult {
+  /** Overrides/resolutions to add to root package.json */
+  overrides: Record<string, string>;
+  /** Key name for the PM (pnpm.overrides, resolutions, overrides) */
+  overridesKey: string;
+  /** Internal deps normalized to workspace protocol */
+  workspaceProtocolUpdates: Array<{
+    packageName: string;
+    dependency: string;
+    from: string;
+    to: string;
+  }>;
+}
+
+// ============================================================================
+// Stage 18: Smart Defaults Types
+// ============================================================================
+
+/**
+ * A suggested decision with evidence
+ */
+export interface SuggestedDecision {
+  /** What is being decided */
+  topic: string;
+  /** The suggested value */
+  suggestion: string;
+  /** Confidence level */
+  confidence: FindingConfidence;
+  /** Evidence supporting this suggestion */
+  evidence: string[];
+  /** Alternative options */
+  alternatives: string[];
+}
+
+/**
+ * An actionable error with hints
+ */
+export interface ActionableError {
+  /** Error message */
+  message: string;
+  /** Error code */
+  code?: string;
+  /** Hint for resolution */
+  hint?: string;
+  /** Related documentation or commands */
+  suggestions?: string[];
+}
+
+// ============================================================================
+// Stage 19: Multi-Language Types
+// ============================================================================
+
+/**
+ * Detected language in a repository
+ */
+export interface LanguageDetection {
+  /** Repository name */
+  repoName: string;
+  /** Detected languages */
+  languages: Array<{
+    name: 'go' | 'rust' | 'python' | 'javascript' | 'typescript';
+    /** Marker files that indicate this language */
+    markers: string[];
+    /** Metadata (e.g. module path for Go, crate name for Rust) */
+    metadata?: Record<string, string>;
+  }>;
+}
+
+// ============================================================================
+// Stage 20: Performance Types
+// ============================================================================
+
+/**
+ * Progress event for long-running operations
+ */
+export interface ProgressEvent {
+  /** Current step number */
+  current: number;
+  /** Total steps */
+  total: number;
+  /** Label for the current step */
+  label: string;
+  /** Percentage complete (0-100) */
+  percentage: number;
 }

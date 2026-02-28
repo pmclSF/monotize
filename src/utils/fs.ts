@@ -115,3 +115,12 @@ export async function listDirs(dirPath: string): Promise<string[]> {
 export async function move(src: string, dest: string): Promise<void> {
   await fs.move(src, dest, { overwrite: true });
 }
+
+/**
+ * Normalize a file path to use forward slashes consistently.
+ * This ensures cross-platform compatibility by replacing both
+ * the platform separator and backslashes with forward slashes.
+ */
+export function normalizePath(p: string): string {
+  return p.replace(/[\\/]+/g, '/');
+}
