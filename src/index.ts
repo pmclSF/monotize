@@ -4,6 +4,7 @@ import { mergeCommand } from './commands/merge.js';
 import { initCommand } from './commands/init.js';
 import { analyzeCommand } from './commands/analyze.js';
 import { applyCommand } from './commands/apply.js';
+import { planCommand } from './commands/plan.js';
 
 const program = new Command();
 
@@ -75,6 +76,41 @@ program
   .option('-v, --verbose', 'Verbose output')
   .option('--json', 'Output as JSON')
   .action(analyzeCommand);
+
+program
+  .command('plan')
+  .description('Generate a migration plan for review before applying')
+  .argument('<repos...>', 'Repositories to merge (URLs, GitHub shorthand, or local paths)')
+  .option('-o, --output <dir>', 'Target output directory for the monorepo', './monorepo')
+  .option('-p, --packages-dir <name>', 'Packages subdirectory name', 'packages')
+  .option('--plan-file <file>', 'Path for the generated plan JSON file')
+  .option('-y, --yes', 'Skip prompts, use defaults')
+  .option(
+    '--conflict-strategy <strategy>',
+    'Dependency conflict resolution strategy (highest, lowest, prompt)',
+    'prompt'
+  )
+  .option('-v, --verbose', 'Verbose output')
+  .option('--no-install', 'Skip running package install in the apply phase')
+  .option('--no-hoist', 'Keep dependencies in each package (prevents type conflicts)')
+  .option('--pin-versions', 'Pin dependency versions by removing ^ and ~ ranges')
+  .option(
+    '--package-manager <pm>',
+    'Package manager to use (pnpm, yarn, yarn-berry, npm)',
+    'pnpm'
+  )
+  .option('--auto-detect-pm', 'Auto-detect package manager from source repos')
+  .option(
+    '--workspace-tool <tool>',
+    'Generate workspace tool config (turbo, nx, none)',
+    'none'
+  )
+  .option(
+    '--workflow-strategy <strategy>',
+    'CI workflow merge strategy (combine, keep-first, keep-last, skip)',
+    'combine'
+  )
+  .action(planCommand);
 
 program
   .command('apply')

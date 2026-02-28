@@ -11,6 +11,8 @@ src/
 ├── index.ts                  # CLI entry point (commander.js program definition)
 ├── commands/
 │   ├── merge.ts              # `monorepo merge` - combine repos into monorepo
+│   ├── plan.ts               # `monorepo plan`  - generate migration plan JSON
+│   ├── apply.ts              # `monorepo apply` - execute plan transactionally
 │   ├── init.ts               # `monorepo init`  - scaffold empty monorepo
 │   └── analyze.ts            # `monorepo analyze` - inspect repos before merge
 ├── analyzers/
@@ -123,6 +125,77 @@ Read-only inspection. Orchestrated by `analyzeCommand()` in `src/commands/analyz
   9. Cleanup temp dir
 ```
 
+### `plan <repos...>`
+
+Generates an `ApplyPlan` JSON file without writing the monorepo to disk. Orchestrated by `planCommand()` in `src/commands/plan.ts`.
+
+```
+  User input (URLs, local paths, GitHub shorthand)
+       │
+       ▼
+  1. validateRepoSources()          ── validation.ts
+       │
+       ▼
+  2. ensureDir(sourcesDir)          ── fs.ts (persistent, co-located with plan file)
+       │
+       ▼
+  3. cloneOrCopyRepos()             ── strategies/copy.ts
+       │
+       ▼
+  4. [--auto-detect-pm?]            ── strategies/package-manager.ts
+       │
+       ▼
+  5. validatePackageManager()       ── strategies/package-manager.ts
+       │
+       ▼
+  6. analyzeDependencies()          ── analyzers/dependencies.ts
+       │
+       ▼
+  7. detectFileCollisions()         ── analyzers/files.ts
+       │
+       ▼
+  8. resolveDependencyConflicts()   ── resolvers/dependencies.ts
+       │
+       ▼
+  9. promptFileCollisionStrategy()  ── utils/prompts.ts
+       │
+       ▼
+ 10. generateWorkspaceConfig()      ── strategies/workspace-config.ts → rootPackageJson
+       │
+       ▼
+ 11. generateWorkspaceFiles()       ── strategies/package-manager.ts → files[]
+       │
+       ▼
+ 12. generateWorkspaceToolConfig()  ── strategies/workspace-tools.ts → files[]
+       │
+       ▼
+ 13. mergeWorkflowsToFiles()        ── strategies/workflow-merge.ts → files[]
+       │
+       ▼
+ 14. resolveFileCollisionToContent() ── strategies/merge-files.ts → files[]
+       │
+       ▼
+ 15. mergeGitignores() + defaults   ── strategies/merge-files.ts → files[]
+       │
+       ▼
+ 16. generateRootReadme()           ── strategies/merge-files.ts → files[]
+       │
+       ▼
+ 17. [--no-hoist?] .npmrc           ── inline → files[]
+       │
+       ▼
+ 18. [--pin-versions?]              ── modify source package.jsons in-place
+       │
+       ▼
+ 19. Assemble ApplyPlan JSON        ── { version, sources, packagesDir, rootPackageJson, files, install }
+       │
+       ▼
+ 20. writeJson(planFile)            ── fs.ts
+       │
+       ▼
+ 21. Print summary with next steps
+```
+
 ### `apply --plan <file> --out <dir>`
 
 Transactional write phase. Orchestrated by `applyCommand()` in `src/commands/apply.ts`.
@@ -151,6 +224,7 @@ Supports `--resume` (skip completed steps), `--cleanup` (remove staging artifact
 |--------|-------|--------|------------|
 | `commands/merge.ts` | — | output dir tree | `git init`, PM install |
 | `commands/init.ts` | — | target dir tree | `git init` |
+| `commands/plan.ts` | — | plan JSON + sources dir | `git clone` |
 | `commands/analyze.ts` | — | stdout only | — |
 | `commands/apply.ts` | plan JSON | staging dir → output | PM install |
 | `analyzers/dependencies.ts` | package.json files | — | — |
