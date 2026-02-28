@@ -9,6 +9,10 @@ import { planRoute } from './routes/plan.js';
 import { applyRoute } from './routes/apply.js';
 import { verifyRoute } from './routes/verify.js';
 import { statusRoute } from './routes/status.js';
+import { wizardRoute } from './routes/wizard.js';
+import { prepareRoute } from './routes/prepare.js';
+import { configureRoute } from './routes/configure.js';
+import { archiveRoute } from './routes/archive.js';
 
 /**
  * Create and start the HTTP + WebSocket server.
@@ -26,6 +30,10 @@ export function createServer(options: ServerOptions): http.Server {
   app.use('/api/apply', applyRoute(hub));
   app.use('/api/verify', verifyRoute(hub));
   app.use('/api/status', statusRoute(hub));
+  app.use('/api/wizard', wizardRoute());
+  app.use('/api/prepare', prepareRoute(hub));
+  app.use('/api/configure', configureRoute(hub));
+  app.use('/api/archive', archiveRoute(hub));
 
   // Serve static UI assets if available
   if (options.staticDir) {

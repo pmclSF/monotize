@@ -4,9 +4,15 @@ import { useOperation } from '../hooks/useOperation';
 import { postVerify } from '../api/client';
 import { CliHint } from '../components/CliHint';
 import { LogStream } from '../components/LogStream';
+import { ExportButton } from '../components/ExportButton';
+import { SkipButton } from '../components/SkipButton';
 
 interface VerifyPageProps {
   ws: UseWebSocketReturn;
+  planPath?: string;
+  outputDir?: string;
+  onComplete: () => void;
+  onSkip: (stepId: string, rationale: string) => void;
 }
 
 interface VerifyResult {
@@ -16,10 +22,10 @@ interface VerifyResult {
   ok: boolean;
 }
 
-export function VerifyPage({ ws }: VerifyPageProps) {
-  const [inputMode, setInputMode] = useState<'plan' | 'dir'>('plan');
-  const [planPath, setPlanPath] = useState('');
-  const [dirPath, setDirPath] = useState('');
+export function VerifyPage({ ws, planPath: initialPlanPath, outputDir, onComplete, onSkip }: VerifyPageProps) {
+  const [inputMode, setInputMode] = useState<'plan' | 'dir'>(initialPlanPath ? 'plan' : 'dir');
+  const [planPath, setPlanPath] = useState(initialPlanPath || '');
+  const [dirPath, setDirPath] = useState(outputDir || '');
   const [tier, setTier] = useState('static');
   const op = useOperation(ws);
   const [loading, setLoading] = useState(false);
@@ -30,10 +36,7 @@ export function VerifyPage({ ws }: VerifyPageProps) {
     if (!inputValue) return;
     setLoading(true);
     try {
-      const body =
-        inputMode === 'plan'
-          ? { plan: planPath, tier }
-          : { dir: dirPath, tier };
+      const body = inputMode === 'plan' ? { plan: planPath, tier } : { dir: dirPath, tier };
       const { opId } = await postVerify(body);
       op.start(opId);
     } catch (err) {
@@ -50,44 +53,26 @@ export function VerifyPage({ ws }: VerifyPageProps) {
 
   return (
     <div>
-      <h2>Verify</h2>
+      <h2>6. Verify</h2>
 
       <div className="radio-group">
         <label>
-          <input
-            type="radio"
-            checked={inputMode === 'plan'}
-            onChange={() => setInputMode('plan')}
-          />{' '}
-          Plan file
+          <input type="radio" checked={inputMode === 'plan'} onChange={() => setInputMode('plan')} /> Plan file
         </label>
         <label>
-          <input
-            type="radio"
-            checked={inputMode === 'dir'}
-            onChange={() => setInputMode('dir')}
-          />{' '}
-          Directory
+          <input type="radio" checked={inputMode === 'dir'} onChange={() => setInputMode('dir')} /> Directory
         </label>
       </div>
 
       {inputMode === 'plan' ? (
         <div className="form-group">
           <label>Plan file path</label>
-          <input
-            value={planPath}
-            onChange={(e) => setPlanPath(e.target.value)}
-            placeholder="./monorepo.plan.json"
-          />
+          <input value={planPath} onChange={(e) => setPlanPath(e.target.value)} placeholder="./monorepo.plan.json" />
         </div>
       ) : (
         <div className="form-group">
           <label>Directory path</label>
-          <input
-            value={dirPath}
-            onChange={(e) => setDirPath(e.target.value)}
-            placeholder="./monorepo"
-          />
+          <input value={dirPath} onChange={(e) => setDirPath(e.target.value)} placeholder="./monorepo" />
         </div>
       )}
 
@@ -102,13 +87,17 @@ export function VerifyPage({ ws }: VerifyPageProps) {
 
       <CliHint command={cliCommand} />
 
-      <button
-        className="primary"
-        onClick={handleVerify}
-        disabled={!inputValue || loading || (!!op.opId && !op.isDone)}
-      >
-        {loading ? 'Starting...' : op.opId && !op.isDone ? 'Verifying...' : 'Verify'}
-      </button>
+      <div className="step-actions">
+        <button
+          className="primary"
+          onClick={handleVerify}
+          disabled={!inputValue || loading || (!!op.opId && !op.isDone)}
+        >
+          {loading ? 'Starting...' : op.opId && !op.isDone ? 'Verifying...' : 'Verify'}
+        </button>
+        <ExportButton data={result} filename="verify-report.json" />
+        <SkipButton stepId="verify" onSkip={onSkip} disabled={!!op.opId && !op.isDone} />
+      </div>
 
       <LogStream logs={op.logs} />
 
@@ -118,31 +107,17 @@ export function VerifyPage({ ws }: VerifyPageProps) {
         <div>
           <div className="summary-bar">
             <span className="stat">Total: {result.summary.total}</span>
-            <span className="stat" style={{ color: 'var(--success)' }}>
-              Pass: {result.summary.pass}
-            </span>
-            <span className="stat" style={{ color: 'var(--warn)' }}>
-              Warn: {result.summary.warn}
-            </span>
-            <span className="stat" style={{ color: 'var(--error)' }}>
-              Fail: {result.summary.fail}
-            </span>
+            <span className="stat" style={{ color: 'var(--success)' }}>Pass: {result.summary.pass}</span>
+            <span className="stat" style={{ color: 'var(--warn)' }}>Warn: {result.summary.warn}</span>
+            <span className="stat" style={{ color: 'var(--error)' }}>Fail: {result.summary.fail}</span>
           </div>
 
           <table className="result-table">
-            <thead>
-              <tr>
-                <th>Status</th>
-                <th>Check</th>
-                <th>Tier</th>
-              </tr>
-            </thead>
+            <thead><tr><th>Status</th><th>Check</th><th>Tier</th></tr></thead>
             <tbody>
               {result.checks.map((check) => (
                 <tr key={check.id}>
-                  <td>
-                    <span className={`badge ${check.status}`}>{check.status}</span>
-                  </td>
+                  <td><span className={`badge ${check.status}`}>{check.status}</span></td>
                   <td>{check.message}</td>
                   <td>{check.tier}</td>
                 </tr>
@@ -153,6 +128,10 @@ export function VerifyPage({ ws }: VerifyPageProps) {
           <p style={{ marginTop: '1rem', fontWeight: 'bold', color: result.ok ? 'var(--success)' : 'var(--error)' }}>
             {result.ok ? 'Verification passed' : 'Verification failed'}
           </p>
+
+          <button className="primary" onClick={onComplete} style={{ marginTop: '1rem' }}>
+            Mark Complete & Continue
+          </button>
         </div>
       )}
     </div>

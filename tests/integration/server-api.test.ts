@@ -339,3 +339,216 @@ describe('WebSocket', () => {
     }
   }, 60000);
 });
+
+// ─── Wizard State Endpoints ─────────────────────────────────────────────
+
+const monotizeDir = path.join(process.cwd(), '.monotize');
+
+describe('GET /api/wizard/state', () => {
+  afterEach(async () => {
+    try { await fs.remove(monotizeDir); } catch { /* ignore */ }
+  });
+
+  it('returns { exists: false, state: null } when no config', async () => {
+    // Ensure no leftover state
+    await fs.remove(monotizeDir);
+
+    const res = await request(server)
+      .get('/api/wizard/state')
+      .expect(200);
+
+    expect(res.body.exists).toBe(false);
+    expect(res.body.state).toBeNull();
+  });
+});
+
+describe('POST /api/wizard/init', () => {
+  afterEach(async () => {
+    try { await fs.remove(monotizeDir); } catch { /* ignore */ }
+  });
+
+  it('creates default state and returns it', async () => {
+    const res = await request(server)
+      .post('/api/wizard/init')
+      .send({ repos: [path.join(fixturesDir, 'repo-a')] })
+      .expect(200);
+
+    expect(res.body).toHaveProperty('state');
+    expect(res.body.state.version).toBe(1);
+    expect(res.body.state.repos).toEqual([path.join(fixturesDir, 'repo-a')]);
+    expect(res.body.state.steps).toHaveLength(8);
+    expect(res.body.state.currentStep).toBe('assess');
+  });
+
+  it('returns 400 for missing repos', async () => {
+    await request(server)
+      .post('/api/wizard/init')
+      .send({})
+      .expect(400);
+  });
+
+  it('returns 400 for empty repos', async () => {
+    await request(server)
+      .post('/api/wizard/init')
+      .send({ repos: [] })
+      .expect(400);
+  });
+});
+
+describe('PUT /api/wizard/state', () => {
+  afterEach(async () => {
+    try { await fs.remove(monotizeDir); } catch { /* ignore */ }
+  });
+
+  it('saves state to disk', async () => {
+    // First init
+    const initRes = await request(server)
+      .post('/api/wizard/init')
+      .send({ repos: ['./repo-a'] })
+      .expect(200);
+
+    const state = initRes.body.state;
+    state.currentStep = 'prepare';
+
+    const putRes = await request(server)
+      .put('/api/wizard/state')
+      .send(state)
+      .expect(200);
+
+    expect(putRes.body).toEqual({ ok: true });
+
+    // Verify persisted
+    const getRes = await request(server)
+      .get('/api/wizard/state')
+      .expect(200);
+
+    expect(getRes.body.exists).toBe(true);
+    expect(getRes.body.state.currentStep).toBe('prepare');
+  });
+
+  it('returns 400 for invalid state', async () => {
+    await request(server)
+      .put('/api/wizard/state')
+      .send({ notAState: true })
+      .expect(400);
+  });
+});
+
+// ─── Prepare Endpoint ───────────────────────────────────────────────────
+
+describe('POST /api/prepare', () => {
+  it('returns 202 with opId for valid repos', async () => {
+    const res = await request(server)
+      .post('/api/prepare')
+      .send({ repos: [path.join(fixturesDir, 'repo-a')] })
+      .expect(202);
+
+    expect(res.body).toHaveProperty('opId');
+  });
+
+  it('streams prepare result over WebSocket', async () => {
+    const ws = await openWs();
+    try {
+      const res = await request(server)
+        .post('/api/prepare')
+        .send({ repos: [path.join(fixturesDir, 'repo-a')] })
+        .expect(202);
+
+      const events = await collectEvents(ws, res.body.opId);
+      const resultEvents = events.filter((e) => e.type === 'result');
+      expect(resultEvents).toHaveLength(1);
+
+      const result = resultEvents[0].data as Record<string, unknown>;
+      expect(result).toHaveProperty('repos');
+      expect(result).toHaveProperty('checklist');
+      expect(result).toHaveProperty('patches');
+    } finally {
+      ws.close();
+    }
+  }, 60000);
+
+  it('returns 400 for empty repos', async () => {
+    await request(server)
+      .post('/api/prepare')
+      .send({ repos: [] })
+      .expect(400);
+  });
+});
+
+// ─── Configure Endpoint ─────────────────────────────────────────────────
+
+const configureTmpDir = path.join(__dirname, '../.tmp-configure-integration');
+
+describe('POST /api/configure', () => {
+  afterEach(async () => {
+    try { await fs.remove(configureTmpDir); } catch { /* ignore */ }
+  });
+
+  it('returns 202 with opId for valid input', async () => {
+    const res = await request(server)
+      .post('/api/configure')
+      .send({ packagesDir: 'packages', packageNames: ['app-a'], baseDir: configureTmpDir })
+      .expect(202);
+
+    expect(res.body).toHaveProperty('opId');
+  });
+
+  it('returns 400 for missing packagesDir', async () => {
+    await request(server)
+      .post('/api/configure')
+      .send({ packageNames: ['app-a'] })
+      .expect(400);
+  });
+
+  it('returns 400 for empty packageNames', async () => {
+    await request(server)
+      .post('/api/configure')
+      .send({ packagesDir: 'packages', packageNames: [] })
+      .expect(400);
+  });
+});
+
+// ─── Archive Endpoint ───────────────────────────────────────────────────
+
+describe('POST /api/archive', () => {
+  it('returns 400 when GITHUB_TOKEN is not set', async () => {
+    const original = process.env.GITHUB_TOKEN;
+    delete process.env.GITHUB_TOKEN;
+
+    try {
+      const res = await request(server)
+        .post('/api/archive')
+        .send({ repos: ['./repo-a'] })
+        .expect(400);
+
+      expect(res.body.error).toContain('GITHUB_TOKEN');
+    } finally {
+      if (original) process.env.GITHUB_TOKEN = original;
+    }
+  });
+
+  it('returns 400 for missing repos', async () => {
+    await request(server)
+      .post('/api/archive')
+      .send({})
+      .expect(400);
+  });
+
+  it('returns stub response when GITHUB_TOKEN is set', async () => {
+    const original = process.env.GITHUB_TOKEN;
+    process.env.GITHUB_TOKEN = 'test-token';
+
+    try {
+      const res = await request(server)
+        .post('/api/archive')
+        .send({ repos: ['./repo-a'] })
+        .expect(200);
+
+      expect(res.body.status).toBe('stub');
+      expect(res.body.archived).toEqual([]);
+    } finally {
+      if (original) process.env.GITHUB_TOKEN = original;
+      else delete process.env.GITHUB_TOKEN;
+    }
+  });
+});

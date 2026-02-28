@@ -3,8 +3,10 @@ import { spawn } from 'node:child_process';
 import type {
   AnalyzeResult,
   ApplyPlan,
+  ConfigureResult,
   ConflictStrategy,
   Logger,
+  PrepareAnalysis,
   VerifyCheck,
   VerifyResult,
   VerifyTier,
@@ -26,6 +28,7 @@ import { analyzeDependencies } from '../analyzers/dependencies.js';
 import { detectFileCollisions } from '../analyzers/files.js';
 import { detectCircularDependencies, computeHotspots } from '../analyzers/graph.js';
 import { cloneOrCopyRepos } from '../strategies/copy.js';
+import { analyzeReposForPreparation } from '../analyzers/prepare.js';
 import {
   detectCrossDependencies,
   calculateComplexityScore,
@@ -667,4 +670,172 @@ export async function runVerify(
 
   logger.success(`Verification complete: ${summary.pass} pass, ${summary.warn} warn, ${summary.fail} fail`);
   return result;
+}
+
+// ─── Prepare ────────────────────────────────────────────────────────────────
+
+export interface PrepareOptions {
+  targetNodeVersion?: string;
+  targetPackageManager?: string;
+}
+
+export async function runPrepare(
+  repos: string[],
+  options: PrepareOptions,
+  logger: Logger,
+): Promise<PrepareAnalysis> {
+  // Validate
+  logger.info('Validating repository sources...');
+  const validation = await validateRepoSources(repos);
+  if (!validation.valid) {
+    throw new Error(`Validation failed: ${validation.errors.join(', ')}`);
+  }
+  logger.success(`Found ${validation.sources.length} repositories to prepare`);
+
+  // Clone/copy to temp
+  const tempDir = await createTempDir();
+  try {
+    logger.info('Fetching repositories...');
+    const repoPaths = await cloneOrCopyRepos(validation.sources, tempDir, {
+      logger,
+      verbose: true,
+    });
+
+    logger.info('Analyzing repos for preparation...');
+    const result = await analyzeReposForPreparation(repoPaths, {
+      targetNodeVersion: options.targetNodeVersion ?? undefined,
+      targetPackageManager: options.targetPackageManager ?? undefined,
+    });
+
+    logger.info(`Found ${result.checklist.length} checklist items, ${result.patches.length} patches`);
+    logger.success('Preparation analysis complete');
+    return result;
+  } finally {
+    try {
+      await removeDir(tempDir);
+    } catch {
+      // Ignore cleanup errors
+    }
+  }
+}
+
+// ─── Configure ──────────────────────────────────────────────────────────────
+
+export interface ConfigureOptions {
+  packagesDir: string;
+  packageNames: string[];
+  workspaceTool?: WorkspaceTool;
+  baseDir?: string;
+}
+
+export async function runConfigure(
+  options: ConfigureOptions,
+  logger: Logger,
+): Promise<ConfigureResult> {
+  const { packagesDir, packageNames } = options;
+  const baseDir = options.baseDir || process.cwd();
+  const scaffoldedFiles: ConfigureResult['scaffoldedFiles'] = [];
+  const skippedConfigs: ConfigureResult['skippedConfigs'] = [];
+
+  await ensureDir(baseDir);
+
+  // 1. tsconfig.base.json — shared compiler options
+  logger.info('Scaffolding tsconfig.base.json...');
+  const tsconfigBase = {
+    compilerOptions: {
+      target: 'ES2022',
+      module: 'ESNext',
+      moduleResolution: 'bundler',
+      strict: true,
+      esModuleInterop: true,
+      skipLibCheck: true,
+      forceConsistentCasingInFileNames: true,
+      declaration: true,
+      declarationMap: true,
+      sourceMap: true,
+      outDir: 'dist',
+      rootDir: 'src',
+    },
+    exclude: ['node_modules', 'dist'],
+  };
+  await writeJson(path.join(baseDir, 'tsconfig.base.json'), tsconfigBase, { spaces: 2 });
+  scaffoldedFiles.push({ relativePath: 'tsconfig.base.json', description: 'Shared TypeScript compiler options' });
+
+  // 2. Root tsconfig.json with project references
+  logger.info('Scaffolding root tsconfig.json...');
+  const rootTsconfig = {
+    files: [],
+    references: packageNames.map((name) => ({
+      path: `./${packagesDir}/${name}`,
+    })),
+  };
+  await writeJson(path.join(baseDir, 'tsconfig.json'), rootTsconfig, { spaces: 2 });
+  scaffoldedFiles.push({ relativePath: 'tsconfig.json', description: 'Root TypeScript config with project references' });
+
+  // 3. Per-package tsconfig.json
+  for (const name of packageNames) {
+    const pkgTsconfigRelPath = path.join(packagesDir, name, 'tsconfig.json');
+    const pkgTsconfigAbsPath = path.join(baseDir, pkgTsconfigRelPath);
+    await ensureDir(path.dirname(pkgTsconfigAbsPath));
+    const pkgTsconfig = {
+      extends: '../../tsconfig.base.json',
+      compilerOptions: {
+        outDir: 'dist',
+        rootDir: 'src',
+      },
+      include: ['src'],
+    };
+    await writeJson(pkgTsconfigAbsPath, pkgTsconfig, { spaces: 2 });
+    scaffoldedFiles.push({ relativePath: pkgTsconfigRelPath, description: `TypeScript config for ${name}` });
+    logger.info(`Scaffolded ${pkgTsconfigRelPath}`);
+  }
+
+  // 4. .prettierrc.json (JSON-only)
+  logger.info('Scaffolding .prettierrc.json...');
+  const prettierConfig = {
+    semi: true,
+    singleQuote: true,
+    trailingComma: 'all',
+    printWidth: 100,
+    tabWidth: 2,
+  };
+  await writeJson(path.join(baseDir, '.prettierrc.json'), prettierConfig, { spaces: 2 });
+  scaffoldedFiles.push({ relativePath: '.prettierrc.json', description: 'Prettier configuration (JSON)' });
+
+  // 5. .eslintrc.json (JSON-only)
+  logger.info('Scaffolding .eslintrc.json...');
+  const eslintConfig = {
+    root: true,
+    env: { node: true, es2022: true },
+    parser: '@typescript-eslint/parser',
+    plugins: ['@typescript-eslint'],
+    extends: [
+      'eslint:recommended',
+      'plugin:@typescript-eslint/recommended',
+    ],
+    rules: {},
+  };
+  await writeJson(path.join(baseDir, '.eslintrc.json'), eslintConfig, { spaces: 2 });
+  scaffoldedFiles.push({ relativePath: '.eslintrc.json', description: 'ESLint configuration (JSON)' });
+
+  // Log skipped executable configs
+  skippedConfigs.push({
+    name: 'eslint.config.js',
+    reason: 'Executable configs require manual migration; scaffolded .eslintrc.json instead',
+  });
+  skippedConfigs.push({
+    name: 'prettier.config.js',
+    reason: 'Executable configs require manual migration; scaffolded .prettierrc.json instead',
+  });
+  skippedConfigs.push({
+    name: 'eslint.config.mjs',
+    reason: 'ESM flat configs require manual migration; scaffolded .eslintrc.json instead',
+  });
+
+  for (const skip of skippedConfigs) {
+    logger.warn(`Skipped ${skip.name}: ${skip.reason}`);
+  }
+
+  logger.success(`Scaffolded ${scaffoldedFiles.length} config files`);
+  return { scaffoldedFiles, skippedConfigs };
 }

@@ -4,9 +4,14 @@ import { useOperation } from '../hooks/useOperation';
 import { postAnalyze } from '../api/client';
 import { CliHint } from '../components/CliHint';
 import { LogStream } from '../components/LogStream';
+import { ExportButton } from '../components/ExportButton';
+import { SkipButton } from '../components/SkipButton';
 
-interface AnalyzePageProps {
+interface AssessPageProps {
   ws: UseWebSocketReturn;
+  repos: string[];
+  onComplete: () => void;
+  onSkip: (stepId: string, rationale: string) => void;
 }
 
 interface AnalyzeResult {
@@ -17,15 +22,9 @@ interface AnalyzeResult {
   recommendations: string[];
 }
 
-export function AnalyzePage({ ws }: AnalyzePageProps) {
-  const [reposInput, setReposInput] = useState('');
+export function AssessPage({ ws, repos, onComplete, onSkip }: AssessPageProps) {
   const op = useOperation(ws);
   const [loading, setLoading] = useState(false);
-
-  const repos = reposInput
-    .split(/[\n,]/)
-    .map((s) => s.trim())
-    .filter(Boolean);
 
   const handleAnalyze = async () => {
     if (repos.length === 0) return;
@@ -44,22 +43,21 @@ export function AnalyzePage({ ws }: AnalyzePageProps) {
 
   return (
     <div>
-      <h2>Analyze Repositories</h2>
-
-      <div className="form-group">
-        <label>Repository paths (comma or newline separated)</label>
-        <textarea
-          value={reposInput}
-          onChange={(e) => setReposInput(e.target.value)}
-          placeholder="./repo-a&#10;./repo-b"
-        />
-      </div>
+      <h2>1. Assess Repositories</h2>
 
       <CliHint command={`monorepo analyze ${repos.join(' ')} --json`} />
 
-      <button className="primary" onClick={handleAnalyze} disabled={repos.length === 0 || loading || (!!op.opId && !op.isDone)}>
-        {loading ? 'Starting...' : op.opId && !op.isDone ? 'Analyzing...' : 'Analyze'}
-      </button>
+      <div className="step-actions">
+        <button
+          className="primary"
+          onClick={handleAnalyze}
+          disabled={repos.length === 0 || loading || (!!op.opId && !op.isDone)}
+        >
+          {loading ? 'Starting...' : op.opId && !op.isDone ? 'Analyzing...' : 'Run Assessment'}
+        </button>
+        <ExportButton data={result} filename="assess-report.json" />
+        <SkipButton stepId="assess" onSkip={onSkip} disabled={!!op.opId && !op.isDone} />
+      </div>
 
       <LogStream logs={op.logs} />
 
@@ -77,18 +75,12 @@ export function AnalyzePage({ ws }: AnalyzePageProps) {
           <h3>Packages</h3>
           <table className="result-table">
             <thead>
-              <tr>
-                <th>Name</th>
-                <th>Version</th>
-                <th>Source</th>
-              </tr>
+              <tr><th>Name</th><th>Version</th><th>Source</th></tr>
             </thead>
             <tbody>
               {result.packages.map((pkg) => (
                 <tr key={`${pkg.repoName}-${pkg.name}`}>
-                  <td>{pkg.name}</td>
-                  <td>{pkg.version}</td>
-                  <td>{pkg.repoName}</td>
+                  <td>{pkg.name}</td><td>{pkg.version}</td><td>{pkg.repoName}</td>
                 </tr>
               ))}
             </tbody>
@@ -98,12 +90,7 @@ export function AnalyzePage({ ws }: AnalyzePageProps) {
             <>
               <h3>Conflicts</h3>
               <table className="result-table">
-                <thead>
-                  <tr>
-                    <th>Dependency</th>
-                    <th>Severity</th>
-                  </tr>
-                </thead>
+                <thead><tr><th>Dependency</th><th>Severity</th></tr></thead>
                 <tbody>
                   {result.conflicts.map((c, i) => (
                     <tr key={i}>
@@ -119,13 +106,13 @@ export function AnalyzePage({ ws }: AnalyzePageProps) {
           {result.recommendations.length > 0 && (
             <>
               <h3>Recommendations</h3>
-              <ul>
-                {result.recommendations.map((r, i) => (
-                  <li key={i}>{r}</li>
-                ))}
-              </ul>
+              <ul>{result.recommendations.map((r, i) => <li key={i}>{r}</li>)}</ul>
             </>
           )}
+
+          <button className="primary" onClick={onComplete} style={{ marginTop: '1rem' }}>
+            Mark Complete & Continue
+          </button>
         </div>
       )}
     </div>

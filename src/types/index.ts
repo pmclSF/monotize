@@ -694,3 +694,46 @@ export interface PrepWorkspaceConfig {
   /** Filenames of patches that were applied */
   appliedPatches: string[];
 }
+
+// ─── Wizard Types ─────────────────────────────────────────────────────────
+
+export type WizardStepId =
+  | 'assess' | 'prepare' | 'merge' | 'configure'
+  | 'migrate-branches' | 'verify' | 'archive' | 'operate';
+
+export type WizardStepStatus = 'pending' | 'in-progress' | 'completed' | 'skipped';
+
+export interface WizardStepState {
+  id: WizardStepId;
+  status: WizardStepStatus;
+  startedAt?: string;
+  completedAt?: string;
+  skipRationale?: string;
+  artifactPath?: string;
+  lastOpId?: string;
+}
+
+export interface WizardGlobalOptions {
+  outputDir: string;
+  packagesDir: string;
+  packageManager: string;
+  conflictStrategy: string;
+  workspaceTool: WorkspaceTool;
+  planPath?: string;
+  targetNodeVersion?: string;
+}
+
+export interface WizardState {
+  version: 1;
+  createdAt: string;
+  updatedAt: string;
+  repos: string[];
+  currentStep: WizardStepId;
+  steps: WizardStepState[];  // always 8 elements, fixed order
+  options: WizardGlobalOptions;
+}
+
+export interface ConfigureResult {
+  scaffoldedFiles: Array<{ relativePath: string; description: string }>;
+  skippedConfigs: Array<{ name: string; reason: string }>;
+}
