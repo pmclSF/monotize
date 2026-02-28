@@ -66,6 +66,13 @@ describe('plan → apply roundtrip', () => {
     expect(plan.install).toBe(false);
     expect(plan.rootPackageJson.private).toBe(true);
     expect(Array.isArray(plan.files)).toBe(true);
+
+    // Check analysisFindings is present
+    expect(plan.analysisFindings).toBeDefined();
+    expect(plan.analysisFindings.declaredConflicts).toBeDefined();
+    expect(plan.analysisFindings.resolvedConflicts).toBeDefined();
+    expect(plan.analysisFindings.peerConflicts).toBeDefined();
+    expect(plan.analysisFindings.decisions).toBeDefined();
   });
 
   it('should include expected files in plan', async () => {

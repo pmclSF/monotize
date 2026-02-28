@@ -387,6 +387,7 @@ resolution-mode=lowest
       files: planFiles,
       install: options.install,
       installCommand: pmConfig.installCommand,
+      analysisFindings: depAnalysis.findings,
     };
 
     // Step 20: Write plan file

@@ -72,6 +72,16 @@ export interface PackageInfo {
 export type ConflictSeverity = 'minor' | 'major' | 'incompatible';
 
 /**
+ * Confidence level for a conflict finding
+ */
+export type ConfidenceLevel = 'high' | 'medium' | 'low';
+
+/**
+ * Source of a conflict finding
+ */
+export type ConflictSource = 'declared' | 'resolved' | 'peer-constraint';
+
+/**
  * A dependency conflict between packages
  */
 export interface DependencyConflict {
@@ -85,6 +95,10 @@ export interface DependencyConflict {
   }>;
   /** Severity of the conflict */
   severity: ConflictSeverity;
+  /** Confidence level of this finding */
+  confidence?: ConfidenceLevel;
+  /** How this conflict was detected */
+  conflictSource?: ConflictSource;
 }
 
 /**
@@ -264,6 +278,70 @@ export interface AnalyzeOptions {
 }
 
 /**
+ * A circular dependency between packages
+ */
+export interface CircularDependency {
+  /** Package names forming the cycle, last connects back to first */
+  cycle: string[];
+  /** Types of edges forming the cycle */
+  edgeTypes: Array<'dependencies' | 'devDependencies' | 'peerDependencies'>;
+}
+
+/**
+ * A dependency that is heavily depended on across packages
+ */
+export interface DependencyHotspot {
+  /** Dependency name */
+  name: string;
+  /** Number of packages depending on it */
+  dependentCount: number;
+  /** Whether this dependency has a version conflict */
+  hasConflict: boolean;
+  /** All version ranges used for this dependency */
+  versionRanges: string[];
+}
+
+/**
+ * Lockfile resolution data for a single repo
+ */
+export interface LockfileResolution {
+  /** Package manager that produced the lockfile */
+  packageManager: 'pnpm' | 'yarn' | 'npm';
+  /** Name of the repo this lockfile belongs to */
+  repoName: string;
+  /** Map of dependency name to resolved version */
+  resolvedVersions: Record<string, string>;
+}
+
+/**
+ * An item requiring human judgment during merge
+ */
+export interface DecisionRequired {
+  /** Kind of decision needed */
+  kind: 'version-conflict' | 'peer-constraint-violation' | 'circular-dependency';
+  /** Human-readable description */
+  description: string;
+  /** Name of the related conflict, if any */
+  relatedConflict?: string;
+  /** Suggested action to take */
+  suggestedAction?: string;
+}
+
+/**
+ * Categorized analysis findings with confidence levels
+ */
+export interface AnalysisFindings {
+  /** Conflicts from declared ranges in package.json */
+  declaredConflicts: DependencyConflict[];
+  /** Conflicts from actual resolved versions in lockfiles */
+  resolvedConflicts: DependencyConflict[];
+  /** Conflicts from peer dependency constraints */
+  peerConflicts: DependencyConflict[];
+  /** Items requiring human judgment */
+  decisions: DecisionRequired[];
+}
+
+/**
  * Result of the analyze command
  */
 export interface AnalyzeResult {
@@ -279,6 +357,12 @@ export interface AnalyzeResult {
   complexityScore: number;
   /** Recommendations for the merge */
   recommendations: string[];
+  /** Circular dependencies between packages */
+  circularDependencies?: CircularDependency[];
+  /** Most-depended-on packages */
+  hotspots?: DependencyHotspot[];
+  /** Categorized findings with confidence */
+  findings?: AnalysisFindings;
 }
 
 /**
@@ -424,6 +508,8 @@ export interface ApplyPlan {
   install: boolean;
   /** Install command to run (e.g., "pnpm install") */
   installCommand?: string;
+  /** Analysis findings requiring attention */
+  analysisFindings?: AnalysisFindings;
 }
 
 /**
