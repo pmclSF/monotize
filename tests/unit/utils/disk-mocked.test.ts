@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Mock child_process before importing the module under test
 const mockExecFile = vi.fn();
@@ -10,8 +10,16 @@ vi.mock('node:child_process', () => ({
 const { checkDiskSpace } = await import('../../../src/utils/disk.js');
 
 describe('checkDiskSpace - mocked branches', () => {
+  const originalPlatform = process.platform;
+
   beforeEach(() => {
     vi.clearAllMocks();
+    // Default these tests to Unix branch; windows-specific cases override explicitly.
+    Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
+  });
+
+  afterEach(() => {
+    Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
   });
 
   it('should parse Unix df output correctly', async () => {
@@ -72,8 +80,6 @@ describe('checkDiskSpace - mocked branches', () => {
   });
 
   it('should handle win32 platform with wmic output', async () => {
-    // Temporarily set platform to win32
-    const originalPlatform = process.platform;
     Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
 
     mockExecFile.mockImplementation(
@@ -86,12 +92,9 @@ describe('checkDiskSpace - mocked branches', () => {
     expect(result.availableBytes).toBe(50000000000);
     expect(result.sufficient).toBe(true);
 
-    // Restore platform
-    Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
   });
 
   it('should handle win32 platform with no match in wmic output', async () => {
-    const originalPlatform = process.platform;
     Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
 
     mockExecFile.mockImplementation(
@@ -104,6 +107,5 @@ describe('checkDiskSpace - mocked branches', () => {
     expect(result.availableBytes).toBe(0);
     expect(result.sufficient).toBe(false);
 
-    Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
   });
 });

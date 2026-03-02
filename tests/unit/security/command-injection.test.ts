@@ -11,55 +11,63 @@ import { safeExecFile } from '../../../src/utils/exec.js';
  */
 
 describe('safeExecFile – shell injection prevention', () => {
+  async function runLiteral(args: string[]): Promise<string> {
+    const result = await safeExecFile(
+      process.execPath,
+      ['-e', 'process.stdout.write(process.argv.slice(1).join(" "))', ...args],
+    );
+    return result.stdout;
+  }
+
   it('should treat shell metacharacters as literal arguments', async () => {
     // If a shell were invoked, "hello; rm -rf /" would execute two commands.
     // With execFile(shell:false), it's a single literal argument to echo.
-    const result = await safeExecFile('echo', ['hello; rm -rf /']);
-    expect(result.stdout.trim()).toBe('hello; rm -rf /');
+    const stdout = await runLiteral(['hello; rm -rf /']);
+    expect(stdout).toBe('hello; rm -rf /');
   });
 
   it('should treat pipe operator as literal text', async () => {
-    const result = await safeExecFile('echo', ['hello | cat /etc/passwd']);
-    expect(result.stdout.trim()).toBe('hello | cat /etc/passwd');
+    const stdout = await runLiteral(['hello | cat /etc/passwd']);
+    expect(stdout).toBe('hello | cat /etc/passwd');
   });
 
   it('should treat command substitution as literal text', async () => {
-    const result = await safeExecFile('echo', ['$(whoami)']);
-    expect(result.stdout.trim()).toBe('$(whoami)');
+    const stdout = await runLiteral(['$(whoami)']);
+    expect(stdout).toBe('$(whoami)');
   });
 
   it('should treat backtick substitution as literal text', async () => {
-    const result = await safeExecFile('echo', ['`whoami`']);
-    expect(result.stdout.trim()).toBe('`whoami`');
+    const stdout = await runLiteral(['`whoami`']);
+    expect(stdout).toBe('`whoami`');
   });
 
   it('should treat environment variable expansion as literal text', async () => {
-    const result = await safeExecFile('echo', ['$HOME']);
-    expect(result.stdout.trim()).toBe('$HOME');
+    const stdout = await runLiteral(['$HOME']);
+    expect(stdout).toBe('$HOME');
   });
 
   it('should treat ampersand background operator as literal text', async () => {
-    const result = await safeExecFile('echo', ['hello & echo injected']);
-    expect(result.stdout.trim()).toBe('hello & echo injected');
+    const stdout = await runLiteral(['hello & echo injected']);
+    expect(stdout).toBe('hello & echo injected');
   });
 
   it('should treat redirects as literal text', async () => {
-    const result = await safeExecFile('echo', ['hello > /tmp/evil']);
-    expect(result.stdout.trim()).toBe('hello > /tmp/evil');
+    const stdout = await runLiteral(['hello > /tmp/evil']);
+    expect(stdout).toBe('hello > /tmp/evil');
   });
 
   it('should treat newline-separated commands as single argument', async () => {
-    const result = await safeExecFile('echo', ['hello\nwhoami']);
+    const stdout = await runLiteral(['hello\nwhoami']);
     // echo outputs the literal string including the newline
-    expect(result.stdout).toContain('hello');
-    expect(result.stdout).toContain('whoami');
+    expect(stdout).toContain('hello');
+    expect(stdout).toContain('whoami');
   });
 
   it('should pass arguments with special characters safely', async () => {
-    const result = await safeExecFile('echo', ['"quotes"', "'singles'", '\\backslash']);
-    expect(result.stdout).toContain('"quotes"');
-    expect(result.stdout).toContain("'singles'");
-    expect(result.stdout).toContain('\\backslash');
+    const stdout = await runLiteral(['"quotes"', "'singles'", '\\backslash']);
+    expect(stdout).toContain('"quotes"');
+    expect(stdout).toContain("'singles'");
+    expect(stdout).toContain('\\backslash');
   });
 });
 
@@ -131,7 +139,7 @@ describe('safeExecFile – install command whitelist', () => {
 describe('safeExecFile – timeout and resource limits', () => {
   it('should enforce timeout on long-running commands', async () => {
     await expect(
-      safeExecFile('sleep', ['60'], { timeout: 200 })
+      safeExecFile(process.execPath, ['-e', 'setTimeout(() => {}, 60_000)'], { timeout: 200 })
     ).rejects.toThrow();
   });
 
@@ -140,7 +148,10 @@ describe('safeExecFile – timeout and resource limits', () => {
     // This is the definitive test: if shell were true, "echo hello && echo world"
     // would output two lines. With shell:false, echo gets "hello", "&&", "echo", "world"
     // as separate arguments.
-    const result = await safeExecFile('echo', ['hello', '&&', 'echo', 'world']);
-    expect(result.stdout.trim()).toBe('hello && echo world');
+    const result = await safeExecFile(
+      process.execPath,
+      ['-e', 'process.stdout.write(process.argv.slice(1).join(" "))', 'hello', '&&', 'echo', 'world'],
+    );
+    expect(result.stdout).toBe('hello && echo world');
   });
 });

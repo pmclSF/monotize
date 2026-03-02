@@ -164,9 +164,10 @@ describe('Validation Edge Cases', () => {
 
     describe('absolute vs relative paths', () => {
       it('should handle absolute path', () => {
-        const result = parseRepoSource('/Users/test/projects/repo');
+        const absoluteInput = '/Users/test/projects/repo';
+        const result = parseRepoSource(absoluteInput);
         expect(result.type).toBe('local');
-        expect(result.resolved).toBe('/Users/test/projects/repo');
+        expect(result.resolved).toBe(path.resolve(absoluteInput));
       });
 
       it('should resolve relative path starting with ./', () => {

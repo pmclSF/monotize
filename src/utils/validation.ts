@@ -168,9 +168,16 @@ const GIT_URL_PATTERNS = [
 ];
 
 /**
- * Extract repository name from various URL formats
+ * Extract repository name from various URL/path formats.
  */
-function extractRepoName(input: string): string {
+function extractRepoName(input: string, type: RepoSourceType): string {
+  if (type === 'local') {
+    // Handle POSIX, Windows drive, and UNC-style local paths.
+    const withoutTrailingSlash = input.replace(/[\\/]+$/, '');
+    const base = path.basename(withoutTrailingSlash);
+    return base || 'unknown';
+  }
+
   // Remove .git suffix if present
   let name = input.replace(/\.git$/, '');
 
@@ -181,8 +188,8 @@ function extractRepoName(input: string): string {
   }
 
   // Handle shorthand notation (owner/repo)
-  if (name.includes('/')) {
-    const parts = name.split('/');
+  if (name.includes('/') || name.includes('\\')) {
+    const parts = name.split(/[\\/]/);
     name = parts[parts.length - 1];
   }
 
@@ -198,6 +205,11 @@ function extractRepoName(input: string): string {
 function determineSourceType(input: string): RepoSourceType {
   // Check for local paths first (starting with ./ or ../ or /)
   if (input.startsWith('./') || input.startsWith('../') || input.startsWith('/')) {
+    return 'local';
+  }
+
+  // Windows absolute/UNC paths
+  if (/^[a-zA-Z]:[\\/]/.test(input) || input.startsWith('\\\\')) {
     return 'local';
   }
 
@@ -262,7 +274,7 @@ export function parseRepoSource(input: string): RepoSource {
   const trimmed = input.trim();
   const type = determineSourceType(trimmed);
   const resolved = resolveSource(trimmed, type);
-  const name = extractRepoName(trimmed);
+  const name = extractRepoName(trimmed, type);
 
   return {
     type,

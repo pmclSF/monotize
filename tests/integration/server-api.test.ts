@@ -39,7 +39,7 @@ beforeAll(async () => {
   await new Promise<void>((resolve) => {
     server.on('listening', () => {
       const addr = server.address() as { port: number };
-      wsUrl = `ws://localhost:${addr.port}/ws?token=${authToken}`;
+      wsUrl = `ws://127.0.0.1:${addr.port}/ws?token=${authToken}`;
       resolve();
     });
   });
@@ -460,7 +460,7 @@ describe('WebSocket', () => {
 
   it('should reject WebSocket upgrade on non-/ws path', async () => {
     const addr = server.address() as { port: number };
-    const ws = new WebSocket(`ws://localhost:${addr.port}/not-ws?token=${authToken}`);
+    const ws = new WebSocket(`ws://127.0.0.1:${addr.port}/not-ws?token=${authToken}`);
 
     await new Promise<void>((resolve) => {
       ws.on('error', () => resolve());
@@ -473,7 +473,7 @@ describe('WebSocket', () => {
 
   it('should reject WebSocket upgrade with invalid token', async () => {
     const addr = server.address() as { port: number };
-    const ws = new WebSocket(`ws://localhost:${addr.port}/ws?token=wrong-token`);
+    const ws = new WebSocket(`ws://127.0.0.1:${addr.port}/ws?token=wrong-token`);
 
     await new Promise<void>((resolve) => {
       ws.on('error', () => resolve());
@@ -485,7 +485,7 @@ describe('WebSocket', () => {
 
   it('should reject WebSocket upgrade with no token', async () => {
     const addr = server.address() as { port: number };
-    const ws = new WebSocket(`ws://localhost:${addr.port}/ws`);
+    const ws = new WebSocket(`ws://127.0.0.1:${addr.port}/ws`);
 
     await new Promise<void>((resolve) => {
       ws.on('error', () => resolve());

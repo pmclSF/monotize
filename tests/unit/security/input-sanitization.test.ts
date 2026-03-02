@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { describe, it, expect } from 'vitest';
 import {
   isValidPackageName,
@@ -100,9 +101,10 @@ describe('sanitizePackageName – produces safe output', () => {
 
 describe('parseRepoSource – safe source parsing', () => {
   it('should classify local paths correctly', () => {
-    const source = parseRepoSource('/tmp/my-repo');
+    const localInput = '/tmp/my-repo';
+    const source = parseRepoSource(localInput);
     expect(source.type).toBe('local');
-    expect(source.resolved).toBe('/tmp/my-repo');
+    expect(source.resolved).toBe(path.resolve(localInput));
   });
 
   it('should classify relative paths as local', () => {
