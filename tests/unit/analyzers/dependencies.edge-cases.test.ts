@@ -193,6 +193,7 @@ describe('Dependency Analysis Edge Cases', () => {
 
       // Should gracefully handle malformed JSON
       expect(result.packages).toHaveLength(0);
+      expect(result.warnings?.some((w) => w.type === 'parse-error' && w.source === 'malformed')).toBe(true);
     });
 
     it('should handle wildcard dependencies', async () => {

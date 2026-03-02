@@ -143,7 +143,11 @@ function determineConflictSeverity(versions: string[]): ConflictSeverity {
 /**
  * Read package.json from a directory
  */
-async function readPackageJson(repoPath: string, repoName: string): Promise<PackageInfo | null> {
+async function readPackageJson(
+  repoPath: string,
+  repoName: string,
+  warnings: DependencyWarning[]
+): Promise<PackageInfo | null> {
   const packageJsonPath = path.join(repoPath, 'package.json');
 
   if (!(await pathExists(packageJsonPath))) {
@@ -163,8 +167,14 @@ async function readPackageJson(repoPath: string, repoName: string): Promise<Pack
       path: repoPath,
       repoName,
     };
-  } catch {
-    // Malformed JSON or read error
+  } catch (error) {
+    warnings.push({
+      name: 'package.json',
+      version: 'invalid',
+      source: repoName,
+      type: 'parse-error',
+      message: `Failed to read ${packageJsonPath}: ${getErrorMessage(error)}`,
+    });
     return null;
   }
 }
@@ -172,11 +182,15 @@ async function readPackageJson(repoPath: string, repoName: string): Promise<Pack
 /**
  * Find all package.json files in a repository (including nested workspaces)
  */
-async function findPackages(repoPath: string, repoName: string): Promise<PackageInfo[]> {
+async function findPackages(
+  repoPath: string,
+  repoName: string,
+  warnings: DependencyWarning[]
+): Promise<PackageInfo[]> {
   const packages: PackageInfo[] = [];
 
   // First, read the root package.json
-  const rootPkg = await readPackageJson(repoPath, repoName);
+  const rootPkg = await readPackageJson(repoPath, repoName, warnings);
   if (rootPkg) {
     packages.push(rootPkg);
   }
@@ -191,8 +205,12 @@ export interface DependencyWarning {
   name: string;
   version: string;
   source: string;
-  type: 'git' | 'file' | 'url' | 'wildcard' | 'prerelease';
+  type: 'git' | 'file' | 'url' | 'wildcard' | 'prerelease' | 'parse-error';
   message: string;
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 /**
@@ -248,7 +266,7 @@ export async function analyzeDependencies(
 
   // Collect all packages from all repos
   for (const repo of repoPaths) {
-    const packages = await findPackages(repo.path, repo.name);
+    const packages = await findPackages(repo.path, repo.name, warnings);
     allPackages.push(...packages);
   }
 
