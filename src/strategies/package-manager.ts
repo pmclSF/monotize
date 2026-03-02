@@ -3,11 +3,6 @@ import path from 'node:path';
 import type { PackageManagerType, PackageManagerConfig } from '../types/index.js';
 import { pathExists } from '../utils/fs.js';
 
-function isMissingExecutableError(error: unknown): boolean {
-  const err = error as NodeJS.ErrnoException;
-  return err?.code === 'ENOENT' || err?.code === 'EACCES';
-}
-
 function quoteForCmd(arg: string): string {
   if (!/[\s"]/u.test(arg)) return arg;
   return `"${arg.replace(/"/g, '""')}"`;
@@ -18,24 +13,27 @@ function execPackageManager(
   args: string[],
   options: { encoding: 'utf-8' } | { stdio: 'pipe' },
 ): string {
-  try {
+  if (process.platform !== 'win32') {
     return execFileSync(command, args, options).toString();
-  } catch (error) {
-    if (process.platform !== 'win32' || !isMissingExecutableError(error)) {
-      throw error;
-    }
+  }
 
+  const commandLine = [command, ...args].map(quoteForCmd).join(' ');
+  const attempts: Array<{ cmd: string; args: string[] }> = [
+    { cmd: command, args },
+    { cmd: `${command}.cmd`, args },
+    { cmd: 'cmd.exe', args: ['/d', '/s', '/c', commandLine] },
+  ];
+
+  let lastError: unknown;
+  for (const attempt of attempts) {
     try {
-      return execFileSync(`${command}.cmd`, args, options).toString();
-    } catch (cmdExtError) {
-      if (!isMissingExecutableError(cmdExtError)) {
-        throw cmdExtError;
-      }
-
-      const commandLine = [command, ...args].map(quoteForCmd).join(' ');
-      return execFileSync('cmd.exe', ['/d', '/s', '/c', commandLine], options).toString();
+      return execFileSync(attempt.cmd, attempt.args, options).toString();
+    } catch (error) {
+      lastError = error;
     }
   }
+
+  throw lastError;
 }
 
 /**
