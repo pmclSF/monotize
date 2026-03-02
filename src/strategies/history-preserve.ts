@@ -274,6 +274,23 @@ export async function preserveHistory(
       stdio: 'pipe',
     });
 
+    // Ensure commits can be created in fresh CI environments without global git config.
+    const commitName =
+      process.env.GIT_AUTHOR_NAME || process.env.GIT_COMMITTER_NAME || 'monotize';
+    const commitEmail =
+      process.env.GIT_AUTHOR_EMAIL ||
+      process.env.GIT_COMMITTER_EMAIL ||
+      'monotize@example.com';
+
+    execFileSync('git', ['config', 'user.name', commitName], {
+      cwd: outputPath,
+      stdio: 'pipe',
+    });
+    execFileSync('git', ['config', 'user.email', commitEmail], {
+      cwd: outputPath,
+      stdio: 'pipe',
+    });
+
     // Create initial commit if needed
     try {
       execFileSync('git', ['rev-parse', 'HEAD'], {
