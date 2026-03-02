@@ -1,4 +1,18 @@
 /**
+ * Thrown instead of calling process.exit() directly, allowing cleanup and testability.
+ * The top-level CLI handler catches this and calls process.exit(exitCode).
+ */
+export class CliExitError extends Error {
+  exitCode: number;
+
+  constructor(exitCode = 1) {
+    super(`Process exiting with code ${exitCode}`);
+    this.name = 'CliExitError';
+    this.exitCode = exitCode;
+  }
+}
+
+/**
  * An error with an actionable hint for the user.
  */
 export class ActionableError extends Error {

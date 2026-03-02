@@ -47,7 +47,7 @@ async function readPackagesFromDir(dir: string): Promise<PackageInfo[]> {
         path: path.join(packagesDir, name),
         repoName: name,
       });
-    } catch {
+    } catch (_err) {
       // skip malformed package.json
     }
   }
@@ -67,7 +67,7 @@ async function packagesFromPlan(plan: ApplyPlan): Promise<PackageInfo[]> {
     if (await pathExists(pkgJsonPath)) {
       try {
         pkgJson = await readJson<Record<string, unknown>>(pkgJsonPath);
-      } catch { /* fall through */ }
+      } catch (_err) { /* fall through */ }
     }
 
     // Fallback: check plan.files for an inline package.json
@@ -79,7 +79,7 @@ async function packagesFromPlan(plan: ApplyPlan): Promise<PackageInfo[]> {
       if (pkgFile) {
         try {
           pkgJson = JSON.parse(pkgFile.content) as Record<string, unknown>;
-        } catch { /* skip */ }
+        } catch (_err) { /* skip malformed inline package.json */ }
       }
     }
 
@@ -190,7 +190,7 @@ export async function checkWorkspaceConfig(ctx: VerifyContext): Promise<VerifyCh
     try {
       const root = await readJson<Record<string, unknown>>(path.join(ctx.dir, 'package.json'));
       hasWorkspacesField = root.workspaces !== undefined;
-    } catch { /* ignore */ }
+    } catch (_err) { /* could not read package.json for workspaces check */ }
 
     if (hasPnpmWs || hasWorkspacesField) {
       return [check('workspace-config', 'Workspace configuration found', 'pass', 'static', 'files[pnpm-workspace.yaml]')];
@@ -372,7 +372,7 @@ export async function checkRequiredFields(ctx: VerifyContext): Promise<VerifyChe
     try {
       const root = await readJson<Record<string, unknown>>(path.join(ctx.dir, 'package.json'));
       hasEngines = root.engines !== undefined;
-    } catch { /* ignore */ }
+    } catch (_err) { /* could not read package.json for engines check */ }
   }
 
   checks.push(

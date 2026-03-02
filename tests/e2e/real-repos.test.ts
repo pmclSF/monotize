@@ -13,7 +13,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { execSync } from 'node:child_process';
+import { execFileSync, execSync } from 'node:child_process';
 import path from 'node:path';
 import fs from 'fs-extra';
 import os from 'node:os';
@@ -37,7 +37,7 @@ describe.skipIf(skipNetworkTests)('Real Repository E2E Tests', () => {
   });
 
   const runCLI = (args: string[], options: { timeout?: number } = {}) => {
-    return execSync(`node ${CLI_PATH} ${args.join(' ')}`, {
+    return execFileSync('node', [CLI_PATH, ...args], {
       encoding: 'utf-8',
       stdio: 'pipe',
       timeout: options.timeout || 120000, // 2 minute default timeout

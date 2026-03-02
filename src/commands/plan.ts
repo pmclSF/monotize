@@ -10,6 +10,7 @@ import type {
   PlanFile,
 } from '../types/index.js';
 import { createLogger } from '../utils/logger.js';
+import { CliExitError } from '../utils/errors.js';
 import {
   removeDir,
   ensureDir,
@@ -112,7 +113,7 @@ export async function planCommand(repos: string[], options: CLIPlanOptions): Pro
   process.on('SIGINT', async () => {
     logger.warn('\nInterrupted. Cleaning up...');
     await cleanup();
-    process.exit(1);
+    process.exit(130); // 128 + SIGINT(2)
   });
 
   try {
@@ -127,7 +128,7 @@ export async function planCommand(repos: string[], options: CLIPlanOptions): Pro
       for (const error of validation.errors) {
         logger.error(error);
       }
-      process.exit(1);
+      throw new CliExitError();
     }
 
     logger.success(`Found ${validation.sources.length} repositories to merge`);
@@ -155,7 +156,7 @@ export async function planCommand(repos: string[], options: CLIPlanOptions): Pro
     const pmValidation = validatePackageManager(pmType);
     if (!pmValidation.valid) {
       logger.error(pmValidation.error!);
-      process.exit(1);
+      throw new CliExitError();
     }
 
     const pmConfig = createPackageManagerConfig(pmType);
@@ -426,6 +427,6 @@ resolution-mode=lowest
     }
 
     await cleanup();
-    process.exit(1);
+    throw new CliExitError();
   }
 }

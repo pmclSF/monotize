@@ -244,5 +244,122 @@ describe('Dependency Enforcement', () => {
       expect(checks[0].status).toBe('fail');
       expect(checks[0].id).toBe('enforcement-no-root-pkg');
     });
+
+    it('should return pass when npm overrides are present', async () => {
+      const fixturePath = await createTempFixture({
+        name: 'enforcement-npm-pass',
+        packageJson: {
+          name: 'monorepo',
+          version: '1.0.0',
+          overrides: {
+            lodash: '^4.17.21',
+          },
+        },
+      });
+
+      const checks = await verifyEnforcement(fixturePath, 'npm');
+
+      expect(checks).toHaveLength(1);
+      expect(checks[0].status).toBe('pass');
+      expect(checks[0].message).toContain('overrides');
+    });
+
+    it('should return warn when npm overrides are missing', async () => {
+      const fixturePath = await createTempFixture({
+        name: 'enforcement-npm-warn',
+        packageJson: {
+          name: 'monorepo',
+          version: '1.0.0',
+        },
+      });
+
+      const checks = await verifyEnforcement(fixturePath, 'npm');
+
+      expect(checks).toHaveLength(1);
+      expect(checks[0].status).toBe('warn');
+      expect(checks[0].id).toBe('enforcement-overrides-missing');
+    });
+
+    it('should return pass when yarn resolutions are present', async () => {
+      const fixturePath = await createTempFixture({
+        name: 'enforcement-yarn-pass',
+        packageJson: {
+          name: 'monorepo',
+          version: '1.0.0',
+          resolutions: {
+            react: '^18.0.0',
+          },
+        },
+      });
+
+      const checks = await verifyEnforcement(fixturePath, 'yarn');
+
+      expect(checks).toHaveLength(1);
+      expect(checks[0].status).toBe('pass');
+      expect(checks[0].message).toContain('resolutions');
+    });
+
+    it('should return warn when yarn resolutions are missing', async () => {
+      const fixturePath = await createTempFixture({
+        name: 'enforcement-yarn-warn',
+        packageJson: {
+          name: 'monorepo',
+          version: '1.0.0',
+        },
+      });
+
+      const checks = await verifyEnforcement(fixturePath, 'yarn');
+
+      expect(checks).toHaveLength(1);
+      expect(checks[0].status).toBe('warn');
+      expect(checks[0].details).toContain('resolutions');
+    });
+
+    it('should return warn when pnpm overrides object is empty', async () => {
+      const fixturePath = await createTempFixture({
+        name: 'enforcement-empty-overrides',
+        packageJson: {
+          name: 'monorepo',
+          version: '1.0.0',
+          pnpm: { overrides: {} },
+        },
+      });
+
+      const checks = await verifyEnforcement(fixturePath, 'pnpm');
+
+      expect(checks).toHaveLength(1);
+      expect(checks[0].status).toBe('warn');
+    });
+
+    it('should return warn when npm overrides object is empty', async () => {
+      const fixturePath = await createTempFixture({
+        name: 'enforcement-npm-empty',
+        packageJson: {
+          name: 'monorepo',
+          version: '1.0.0',
+          overrides: {},
+        },
+      });
+
+      const checks = await verifyEnforcement(fixturePath, 'npm');
+
+      expect(checks).toHaveLength(1);
+      expect(checks[0].status).toBe('warn');
+    });
+
+    it('should handle malformed package.json gracefully', async () => {
+      const fixturePath = await createTempFixture({
+        name: 'enforcement-malformed',
+        files: {
+          'package.json': '{ invalid json !!!',
+        },
+      });
+
+      const checks = await verifyEnforcement(fixturePath, 'pnpm');
+
+      expect(checks).toHaveLength(1);
+      expect(checks[0].status).toBe('fail');
+      expect(checks[0].id).toBe('enforcement-parse-error');
+    });
   });
 });

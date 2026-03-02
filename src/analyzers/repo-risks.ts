@@ -70,12 +70,12 @@ export async function analyzeRepoRisks(
               suggestedAction: 'Consider using Git LFS or removing large files before migration',
             });
           }
-        } catch {
-          // Skip unreadable files
+        } catch (err) {
+          logger.debug?.('Failed to stat file ' + filePath + ': ' + (err instanceof Error ? err.message : String(err)));
         }
       }
-    } catch {
-      // Skip if listing fails
+    } catch (err) {
+      logger.debug?.('Failed to list files in ' + repo.name + ': ' + (err instanceof Error ? err.message : String(err)));
     }
   }
 
@@ -89,8 +89,8 @@ export async function analyzeRepoRisks(
         if (!allFiles.has(lower)) allFiles.set(lower, []);
         allFiles.get(lower)!.push({ repo: repo.name, file });
       }
-    } catch {
-      // Skip
+    } catch (err) {
+      logger.debug?.('Failed to list files for case-collision check in ' + repo.name + ': ' + (err instanceof Error ? err.message : String(err)));
     }
   }
 

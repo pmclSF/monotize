@@ -1,4 +1,5 @@
 import path from 'node:path';
+import semver from 'semver';
 import type {
   PackageInfo,
   DependencyConflict,
@@ -48,7 +49,8 @@ export function isWildcardVersion(version: string): boolean {
 }
 
 /**
- * Parse a semver version string into components
+ * Parse a semver version string into components.
+ * Strips range operators (^, ~, >=, etc.) and extracts the base version.
  */
 export function parseSemver(version: string): { major: number; minor: number; patch: number; prerelease?: string } | null {
   // Skip non-semver versions
@@ -61,26 +63,36 @@ export function parseSemver(version: string): { major: number; minor: number; pa
     return null;
   }
 
-  // Remove leading ^, ~, =, >=, <=, <, >
+  // Strip range operators and take the first version token
   const cleaned = version.replace(/^[\^~=><]+/, '').replace(/^>=|<=|>|</, '');
-
-  // Handle range patterns - take the first version in the range
   const firstVersion = cleaned.split(/\s+/)[0];
 
-  // Standard semver pattern with optional pre-release
-  const match = firstVersion.match(/^(\d+)\.(\d+)\.(\d+)(?:-([a-zA-Z0-9.+-]+))?/);
-  if (!match) return null;
+  // Try parsing with semver first (handles prerelease, build metadata correctly)
+  const parsed = semver.parse(firstVersion);
+  if (parsed) {
+    return {
+      major: parsed.major,
+      minor: parsed.minor,
+      patch: parsed.patch,
+      prerelease: parsed.prerelease.length ? parsed.prerelease.join('.') : undefined,
+    };
+  }
 
-  return {
-    major: parseInt(match[1], 10),
-    minor: parseInt(match[2], 10),
-    patch: parseInt(match[3], 10),
-    prerelease: match[4],
-  };
+  // Fall back to coercion for loose formats
+  const coerced = semver.coerce(firstVersion);
+  if (coerced) {
+    return {
+      major: coerced.major,
+      minor: coerced.minor,
+      patch: coerced.patch,
+    };
+  }
+
+  return null;
 }
 
 /**
- * Compare two semver versions
+ * Compare two semver versions using the semver package.
  * Returns: -1 if a < b, 0 if a == b, 1 if a > b
  */
 function compareSemver(a: string, b: string): number {
@@ -94,25 +106,11 @@ function compareSemver(a: string, b: string): number {
   if (!parsedA) return -1; // Non-semver goes first (lower priority)
   if (!parsedB) return 1;
 
-  // Compare major.minor.patch
-  if (parsedA.major !== parsedB.major) {
-    return parsedA.major - parsedB.major;
-  }
-  if (parsedA.minor !== parsedB.minor) {
-    return parsedA.minor - parsedB.minor;
-  }
-  if (parsedA.patch !== parsedB.patch) {
-    return parsedA.patch - parsedB.patch;
-  }
+  // Reconstruct valid semver strings for comparison
+  const verA = `${parsedA.major}.${parsedA.minor}.${parsedA.patch}${parsedA.prerelease ? `-${parsedA.prerelease}` : ''}`;
+  const verB = `${parsedB.major}.${parsedB.minor}.${parsedB.patch}${parsedB.prerelease ? `-${parsedB.prerelease}` : ''}`;
 
-  // Handle pre-release (versions without pre-release are higher)
-  if (parsedA.prerelease && !parsedB.prerelease) return -1;
-  if (!parsedA.prerelease && parsedB.prerelease) return 1;
-  if (parsedA.prerelease && parsedB.prerelease) {
-    return parsedA.prerelease.localeCompare(parsedB.prerelease);
-  }
-
-  return 0;
+  return semver.compare(verA, verB);
 }
 
 /**

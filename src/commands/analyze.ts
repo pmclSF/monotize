@@ -9,6 +9,7 @@ import type {
   PackageInfo,
 } from '../types/index.js';
 import { createLogger, formatHeader, formatList } from '../utils/logger.js';
+import { CliExitError } from '../utils/errors.js';
 import { createTempDir, removeDir } from '../utils/fs.js';
 import { validateRepoSources } from '../utils/validation.js';
 import { analyzeDependencies } from '../analyzers/dependencies.js';
@@ -459,7 +460,7 @@ export async function analyzeCommand(
           logger.error(error);
         }
       }
-      process.exit(1);
+      throw new CliExitError();
     }
 
     if (!options.json) {
@@ -607,6 +608,6 @@ export async function analyzeCommand(
       }
     }
 
-    process.exit(1);
+    throw new CliExitError();
   }
 }

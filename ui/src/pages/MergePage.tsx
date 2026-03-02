@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type { UseWebSocketReturn } from '../hooks/useWebSocket';
 import { useOperation } from '../hooks/useOperation';
 import { postPlan, postApply } from '../api/client';
@@ -14,13 +14,14 @@ interface MergePageProps {
   repos: string[];
   options: WizardGlobalOptions;
   onPlanPathChange: (planPath: string) => void;
+  onPackageNamesChange: (names: string[]) => void;
   onComplete: () => void;
   onSkip: (stepId: string, rationale: string) => void;
 }
 
 type Phase = 'plan' | 'apply';
 
-export function MergePage({ ws, repos, options, onPlanPathChange, onComplete, onSkip }: MergePageProps) {
+export function MergePage({ ws, repos, options, onPlanPathChange, onPackageNamesChange, onComplete, onSkip }: MergePageProps) {
   const [phase, setPhase] = useState<Phase>('plan');
   const planOp = useOperation(ws);
   const applyOp = useOperation(ws);
@@ -40,7 +41,7 @@ export function MergePage({ ws, repos, options, onPlanPathChange, onComplete, on
       });
       planOp.start(opId);
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Request failed');
+      setError(err instanceof Error ? err.message : 'Request failed');
     } finally {
       setLoading(false);
     }
@@ -53,7 +54,7 @@ export function MergePage({ ws, repos, options, onPlanPathChange, onComplete, on
       const { opId } = await postApply(planPath, options.outputDir);
       applyOp.start(opId);
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Request failed');
+      setError(err instanceof Error ? err.message : 'Request failed');
     } finally {
       setLoading(false);
     }
@@ -61,12 +62,23 @@ export function MergePage({ ws, repos, options, onPlanPathChange, onComplete, on
 
   const planResult = planOp.result as { planPath?: string; plan?: Record<string, unknown>; operations?: Array<{ outputs?: string[] }> } | null;
   const applyResult = applyOp.result as { outputDir?: string; packageCount?: number } | null;
+  const [error, setError] = useState<string | null>(null);
 
-  // Auto-set plan path when plan completes
-  if (planResult?.planPath && planPath !== planResult.planPath) {
-    setPlanPath(planResult.planPath);
-    onPlanPathChange(planResult.planPath);
-  }
+  // Auto-set plan path and extract package names when plan completes
+  useEffect(() => {
+    if (planResult?.planPath && planPath !== planResult.planPath) {
+      setPlanPath(planResult.planPath);
+      onPlanPathChange(planResult.planPath);
+    }
+    if (planResult?.plan?.sources && Array.isArray(planResult.plan.sources)) {
+      const names = (planResult.plan.sources as Array<{ name?: string }>)
+        .map((s) => s.name)
+        .filter((n): n is string => !!n);
+      if (names.length > 0) {
+        onPackageNamesChange(names);
+      }
+    }
+  }, [planResult?.planPath, planResult?.plan?.sources]);
 
   const planCliArgs = [
     'monorepo plan', ...repos,
@@ -81,6 +93,7 @@ export function MergePage({ ws, repos, options, onPlanPathChange, onComplete, on
   return (
     <div>
       <h2>3. Merge Repositories</h2>
+      {error && <div className="error-message" role="alert">{error}</div>}
 
       <div className="radio-group">
         <label>

@@ -1,5 +1,26 @@
 import { describe, it, expect } from 'vitest';
-import { ActionableError, shapeError } from '../../../src/utils/errors.js';
+import { ActionableError, CliExitError, shapeError } from '../../../src/utils/errors.js';
+
+describe('CliExitError', () => {
+  it('should construct with default exit code 1', () => {
+    const error = new CliExitError();
+    expect(error.exitCode).toBe(1);
+    expect(error.message).toBe('Process exiting with code 1');
+    expect(error.name).toBe('CliExitError');
+  });
+
+  it('should construct with custom exit code', () => {
+    const error = new CliExitError(2);
+    expect(error.exitCode).toBe(2);
+    expect(error.message).toBe('Process exiting with code 2');
+  });
+
+  it('should be an instance of Error', () => {
+    const error = new CliExitError();
+    expect(error).toBeInstanceOf(Error);
+    expect(error).toBeInstanceOf(CliExitError);
+  });
+});
 
 describe('ActionableError', () => {
   it('should construct with message and hint', () => {

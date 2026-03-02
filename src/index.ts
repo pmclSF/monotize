@@ -12,13 +12,22 @@ import { addCommand } from './commands/add.js';
 import { archiveCommand } from './commands/archive.js';
 import { migrateBranchCommand } from './commands/migrate-branch.js';
 import { registerConfigureCommand } from './commands/configure.js';
+import { CliExitError } from './utils/errors.js';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const { version: MONOTIZE_VERSION } = JSON.parse(
+  readFileSync(join(__dirname, '..', 'package.json'), 'utf-8')
+);
 
 const program = new Command();
 
 program
   .name('monorepo')
   .description('Combine multiple Git repositories into a monorepo')
-  .version('0.2.0');
+  .version(MONOTIZE_VERSION);
 
 program
   .command('merge')
@@ -211,4 +220,10 @@ program
 
 registerConfigureCommand(program);
 
-program.parse();
+program.parseAsync().catch((err: unknown) => {
+  if (err instanceof CliExitError) {
+    process.exit(err.exitCode);
+  }
+  // Re-throw unexpected errors
+  throw err;
+});

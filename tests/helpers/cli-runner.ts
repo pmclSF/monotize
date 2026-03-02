@@ -1,4 +1,4 @@
-import { execSync } from 'node:child_process';
+import { execSync, execFileSync } from 'node:child_process';
 import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
@@ -74,7 +74,7 @@ export async function createGitRepo(
  * Run the CLI and return stdout. Throws on non-zero exit.
  */
 export function runCLI(args: string[], cwd?: string): RunResult {
-  const stdout = execSync(`node "${CLI_PATH}" ${args.join(' ')}`, {
+  const stdout = execFileSync('node', [CLI_PATH, ...args], {
     cwd: cwd || process.cwd(),
     encoding: 'utf-8',
     stdio: 'pipe',
@@ -90,7 +90,7 @@ export function runCLIExpectError(
   cwd?: string
 ): RunErrorResult {
   try {
-    execSync(`node "${CLI_PATH}" ${args.join(' ')}`, {
+    execFileSync('node', [CLI_PATH, ...args], {
       cwd: cwd || process.cwd(),
       encoding: 'utf-8',
       stdio: 'pipe',

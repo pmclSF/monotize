@@ -119,6 +119,31 @@ describe('WsHub', () => {
     expect((ws as any).sent.length).toBe(0); // 0 because there were no buffered events at subscribe time
   });
 
+  it('ignores malformed WebSocket messages', () => {
+    const ws = createMockWs();
+    hub.register(ws);
+
+    // Send a non-JSON message — should not throw
+    ws.emit('message', 'not json at all{{{');
+
+    // Send a message with missing type — should not throw
+    ws.emit('message', JSON.stringify({ opId: 'op1' }));
+
+    // Hub should still function
+    hub.createOperation('op1');
+    hub.broadcast('op1', { type: 'done', opId: 'op1' });
+    expect(hub.isDone('op1')).toBe(true);
+  });
+
+  it('throws when max concurrent operations exceeded', () => {
+    // Create ops up to the limit (MAX_CONCURRENT = 5)
+    for (let i = 0; i < 5; i++) {
+      hub.createOperation(`op-${i}`);
+    }
+
+    expect(() => hub.createOperation('op-overflow')).toThrow('Too many concurrent operations');
+  });
+
   it('scheduleCleanup removes operation after delay', async () => {
     hub.createOperation('op1');
     hub.broadcast('op1', { type: 'log', level: 'info', message: 'test', opId: 'op1' });

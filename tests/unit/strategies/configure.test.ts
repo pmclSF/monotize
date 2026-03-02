@@ -146,6 +146,52 @@ describe('Configure Engine', () => {
       expect(pkgAPatch.before).toBeDefined();
     });
 
+    it('should warn about per-package JS eslint config', async () => {
+      const monorepoDir = await createTempFixture({
+        name: 'cfg-pkg-eslint-js',
+        packageJson: { name: 'my-monorepo', private: true },
+        files: {
+          'packages/pkg-a/eslint.config.js': 'export default {};',
+        },
+        directories: ['packages/pkg-a'],
+      });
+
+      const plan = await generateConfigPlan(
+        monorepoDir,
+        ['pkg-a'],
+        'packages',
+      );
+
+      const pkgWarning = plan.warnings.find(
+        (w) => w.config.includes('pkg-a') && w.config.includes('ESLint'),
+      );
+      expect(pkgWarning).toBeDefined();
+      expect(pkgWarning!.reason).toContain('manual review');
+    });
+
+    it('should handle unparseable per-package tsconfig gracefully', async () => {
+      const monorepoDir = await createTempFixture({
+        name: 'cfg-bad-tsconfig',
+        packageJson: { name: 'my-monorepo', private: true },
+        files: {
+          'packages/pkg-a/tsconfig.json': 'not valid json{{{',
+        },
+        directories: ['packages/pkg-a'],
+      });
+
+      const plan = await generateConfigPlan(
+        monorepoDir,
+        ['pkg-a'],
+        'packages',
+      );
+
+      // Should not crash, should still generate root tsconfig
+      const patchPaths = plan.patches.map((p) => p.path);
+      expect(patchPaths).toContain('tsconfig.json');
+      // But should NOT generate a per-package tsconfig patch for the bad one
+      expect(patchPaths).not.toContain('packages/pkg-a/tsconfig.json');
+    });
+
     it('should log summary when logger is provided', async () => {
       const monorepoDir = await createTempFixture({
         name: 'cfg-logger',
@@ -205,6 +251,31 @@ describe('Configure Engine', () => {
 
       // Verify logger was called for each patch
       expect(logger.info).toHaveBeenCalledWith(expect.stringContaining('Wrote'));
+    });
+
+    it('should log warnings from the plan', async () => {
+      const monorepoDir = await createTempFixture({
+        name: 'cfg-apply-warn',
+        packageJson: { name: 'my-monorepo', private: true },
+        files: {
+          '.eslintrc.js': 'module.exports = { root: true };',
+        },
+        directories: ['packages/pkg-a'],
+      });
+
+      const plan = await generateConfigPlan(
+        monorepoDir,
+        ['pkg-a'],
+        'packages',
+      );
+
+      expect(plan.warnings.length).toBeGreaterThan(0);
+
+      const logger = createMockLogger();
+      await applyConfigPlan(plan, monorepoDir, logger);
+
+      // Warnings should be logged
+      expect(logger.warn).toHaveBeenCalled();
     });
   });
 });

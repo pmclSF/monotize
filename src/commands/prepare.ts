@@ -2,6 +2,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import chalk from 'chalk';
 import { createLogger, formatHeader } from '../utils/logger.js';
+import { CliExitError } from '../utils/errors.js';
 import {
   createTempDir,
   removeDir,
@@ -40,7 +41,7 @@ export async function prepareCommand(repos: string[], options: CLIPrepareOptions
   // Validate mutually exclusive flags
   if (options.patchOnly && options.prepWorkspace) {
     logger.error('--patch-only and --prep-workspace are mutually exclusive');
-    process.exit(1);
+    throw new CliExitError();
   }
 
   // Robust cleanup function
@@ -58,7 +59,7 @@ export async function prepareCommand(repos: string[], options: CLIPrepareOptions
   process.on('SIGINT', async () => {
     logger.warn('\nInterrupted. Cleaning up...');
     await cleanup();
-    process.exit(1);
+    process.exit(130); // 128 + SIGINT(2)
   });
 
   try {
@@ -70,7 +71,7 @@ export async function prepareCommand(repos: string[], options: CLIPrepareOptions
       for (const error of validation.errors) {
         logger.error(error);
       }
-      process.exit(1);
+      throw new CliExitError();
     }
 
     logger.success(`Found ${validation.sources.length} repositories to prepare`);
@@ -252,6 +253,6 @@ export async function prepareCommand(repos: string[], options: CLIPrepareOptions
     }
 
     await cleanup();
-    process.exit(1);
+    throw new CliExitError();
   }
 }

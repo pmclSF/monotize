@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { useWebSocket } from './hooks/useWebSocket';
 import { useWizardState } from './hooks/useWizardState';
 import { WizardStepper } from './components/WizardStepper';
@@ -20,7 +19,6 @@ const STEP_ORDER = [
 export function App() {
   const ws = useWebSocket();
   const wizard = useWizardState();
-  const [packageNames] = useState<string[]>([]);
 
   // While loading, show minimal UI
   if (wizard.loading) {
@@ -55,6 +53,7 @@ export function App() {
 
   const { state } = wizard;
   const currentStep = state.currentStep;
+  const packageNames = state.options.packageNames ?? [];
 
   const handleStepClick = (stepId: string) => {
     wizard.goToStep(stepId);
@@ -85,6 +84,11 @@ export function App() {
 
   const handlePlanPathChange = async (planPath: string) => {
     const updated = { ...state, options: { ...state.options, planPath } };
+    await wizard.save(updated);
+  };
+
+  const handlePackageNamesChange = async (names: string[]) => {
+    const updated = { ...state, options: { ...state.options, packageNames: names } };
     await wizard.save(updated);
   };
 
@@ -122,6 +126,7 @@ export function App() {
             repos={state.repos}
             options={state.options}
             onPlanPathChange={handlePlanPathChange}
+            onPackageNamesChange={handlePackageNamesChange}
             onComplete={() => handleComplete('merge')}
             onSkip={handleSkip}
           />

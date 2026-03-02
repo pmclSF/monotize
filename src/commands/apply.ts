@@ -10,6 +10,7 @@ import type {
   Logger,
 } from '../types/index.js';
 import { createLogger } from '../utils/logger.js';
+import { CliExitError } from '../utils/errors.js';
 import {
   ensureDir,
   move,
@@ -197,7 +198,7 @@ export async function applyCommand(options: CLIApplyOptions): Promise<void> {
   const planPath = path.resolve(options.plan);
   if (!(await pathExists(planPath))) {
     logger.error(`Plan file not found: ${planPath}`);
-    process.exit(1);
+    throw new CliExitError();
   }
 
   const planContent = await readFile(planPath);
@@ -208,14 +209,12 @@ export async function applyCommand(options: CLIApplyOptions): Promise<void> {
     plan = JSON.parse(planContent);
   } catch {
     logger.error('Plan file contains invalid JSON.');
-    process.exit(1);
-    return; // unreachable, satisfies TS
+    throw new CliExitError();
   }
 
   if (!validatePlan(plan)) {
     logger.error('Plan file is invalid. Check version, sources, packagesDir, rootPackageJson, files, and install fields.');
-    process.exit(1);
-    return;
+    throw new CliExitError();
   }
 
   // --dry-run: print steps and exit
@@ -248,13 +247,11 @@ export async function applyCommand(options: CLIApplyOptions): Promise<void> {
     const stagingDirs = await findStagingDirs(outputDir);
     if (stagingDirs.length === 0) {
       logger.error('No staging directory found to resume. Run without --resume to start fresh.');
-      process.exit(1);
-      return;
+      throw new CliExitError();
     }
     if (stagingDirs.length > 1) {
       logger.error(`Multiple staging directories found. Run with --cleanup first.`);
-      process.exit(1);
-      return;
+      throw new CliExitError();
     }
     stagingDir = stagingDirs[0];
     logPath = getLogPath(stagingDir);
@@ -264,8 +261,7 @@ export async function applyCommand(options: CLIApplyOptions): Promise<void> {
     const headerEntry = logEntries.find((e) => e.id === 'header');
     if (headerEntry?.planHash && headerEntry.planHash !== planHash) {
       logger.error('Plan file has changed since the staging directory was created. Use --cleanup first.');
-      process.exit(1);
-      return;
+      throw new CliExitError();
     }
 
     const completedSteps = logEntries.filter((e) => e.status === 'completed').length;
@@ -285,7 +281,7 @@ export async function applyCommand(options: CLIApplyOptions): Promise<void> {
       if (!(await pathExists(source.path))) {
         logger.error(`Source path not found: ${source.path} (for package "${source.name}")`);
         logger.info('Source repos may have been cleaned up. Regenerate the plan file.');
-        process.exit(1);
+        throw new CliExitError();
       }
     }
   }

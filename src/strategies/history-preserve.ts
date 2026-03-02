@@ -10,7 +10,8 @@ export async function checkGitFilterRepo(): Promise<boolean> {
   try {
     execFileSync('git', ['filter-repo', '--version'], { stdio: 'pipe' });
     return true;
-  } catch {
+  } catch (_err) {
+    // git filter-repo not installed or not on PATH
     return false;
   }
 }
@@ -25,7 +26,8 @@ async function isGitRepo(dir: string): Promise<boolean> {
       stdio: 'pipe',
     });
     return true;
-  } catch {
+  } catch (_err) {
+    // Not a git repository
     return false;
   }
 }
@@ -78,8 +80,8 @@ async function preserveHistoryWithFilterRepo(
         cwd: outputPath,
         stdio: 'pipe',
       });
-    } catch {
-      // Remote doesn't exist, which is fine
+    } catch (_err) {
+      // Remote doesn't exist yet, safe to ignore
     }
 
     execFileSync('git', ['remote', 'add', remoteName, workingDir], {
@@ -98,15 +100,15 @@ async function preserveHistoryWithFilterRepo(
         cwd: outputPath,
         stdio: 'pipe',
       });
-    } catch {
-      // Try with master branch
+    } catch (_err) {
+      // main branch merge failed, try master
       try {
         execFileSync('git', ['merge', `${remoteName}/master`, '--allow-unrelated-histories', '--no-edit'], {
           cwd: outputPath,
           stdio: 'pipe',
         });
-      } catch {
-        // Try to find the default branch
+      } catch (_err) {
+        // master branch merge also failed, try to find the default branch
         const branches = execFileSync('git', ['branch', '-r'], {
           cwd: outputPath,
           encoding: 'utf-8',
@@ -115,6 +117,7 @@ async function preserveHistoryWithFilterRepo(
         const remoteBranch = branches
           .split('\n')
           .map((b) => b.trim())
+          .filter((b) => !b.includes('->'))
           .find((b) => b.startsWith(`${remoteName}/`));
 
         if (remoteBranch) {
@@ -138,8 +141,8 @@ async function preserveHistoryWithFilterRepo(
     try {
       const fs = await import('fs-extra');
       await fs.remove(workingDir);
-    } catch {
-      // Ignore cleanup errors
+    } catch (_err) {
+      // Cleanup of working directory failed; non-fatal
     }
   }
 }
@@ -155,17 +158,15 @@ async function preserveHistoryWithSubtree(
 ): Promise<void> {
   const { targetDir } = options;
 
-  // Ensure the target directory exists
-  await ensureDir(path.join(outputPath, targetDir));
-
   // Check if repo has commits
   try {
     execFileSync('git', ['rev-parse', 'HEAD'], {
       cwd: repoPath,
       stdio: 'pipe',
     });
-  } catch {
-    // No commits, just copy files
+  } catch (_err) {
+    // No commits in repo, just copy files
+    await ensureDir(path.join(outputPath, targetDir));
     await copyDir(repoPath, path.join(outputPath, targetDir));
     return;
   }
@@ -179,8 +180,8 @@ async function preserveHistoryWithSubtree(
       cwd: outputPath,
       stdio: 'pipe',
     });
-  } catch {
-    // Remote doesn't exist, which is fine
+  } catch (_err) {
+    // Remote doesn't exist yet, safe to ignore
   }
 
   execFileSync('git', ['remote', 'add', remoteName, repoPath], {
@@ -206,18 +207,19 @@ async function preserveHistoryWithSubtree(
     } else if (branches.includes(`${remoteName}/master`)) {
       defaultBranch = 'master';
     } else {
-      // Find any branch from this remote
+      // Find any branch from this remote (skip HEAD -> symbolic refs)
       const remoteBranch = branches
         .split('\n')
         .map((b) => b.trim())
+        .filter((b) => !b.includes('->'))
         .find((b) => b.startsWith(`${remoteName}/`));
 
       if (remoteBranch) {
         defaultBranch = remoteBranch.replace(`${remoteName}/`, '');
       }
     }
-  } catch {
-    // Use default
+  } catch (_err) {
+    // Could not list remote branches, use default
   }
 
   // Use subtree add to merge with history
@@ -278,7 +280,7 @@ export async function preserveHistory(
         cwd: outputPath,
         stdio: 'pipe',
       });
-    } catch {
+    } catch (_err) {
       // No commits yet, create an initial commit
       execFileSync('git', ['commit', '--allow-empty', '-m', 'Initial commit'], {
         cwd: outputPath,
@@ -309,7 +311,7 @@ export async function checkHistoryPrerequisites(
   // Check git is available
   try {
     execFileSync('which', ['git'], { stdio: 'pipe' });
-  } catch {
+  } catch (_err) {
     issues.push('git is not installed or not on PATH');
   }
 
@@ -328,8 +330,8 @@ export async function checkHistoryPrerequisites(
     if (result.trim() === 'true') {
       issues.push('Repository is a shallow clone. Run `git fetch --unshallow` first.');
     }
-  } catch {
-    // Older git versions don't support this flag, skip
+  } catch (_err) {
+    // Older git versions don't support --is-shallow-repository, skip
   }
 
   // Check git-filter-repo availability
@@ -382,7 +384,8 @@ export async function getCommitCount(repoPath: string): Promise<number> {
       encoding: 'utf-8',
     });
     return parseInt(result.trim(), 10);
-  } catch {
+  } catch (_err) {
+    // No commits or git error; return 0
     return 0;
   }
 }
@@ -404,7 +407,8 @@ export async function getContributors(repoPath: string): Promise<string[]> {
         .filter((line) => line.length > 0)
     );
     return [...contributors].sort();
-  } catch {
+  } catch (_err) {
+    // No commits or git error; return empty
     return [];
   }
 }

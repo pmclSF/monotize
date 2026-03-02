@@ -35,7 +35,7 @@ export async function generateConfigPlan(
   warnings.push(...eslintWarnings);
 
   // Scaffold TypeScript
-  const tsPatches = await scaffoldTypescript(monorepoDir, packageNames, packagesDir);
+  const tsPatches = await scaffoldTypescript(monorepoDir, packageNames, packagesDir, logger);
   patches.push(...tsPatches);
 
   logger?.info(`ConfigPlan: ${patches.length} patches, ${warnings.length} warnings`);
@@ -161,6 +161,7 @@ async function scaffoldTypescript(
   monorepoDir: string,
   packageNames: string[],
   packagesDir: string,
+  _logger?: Logger,
 ): Promise<ConfigPatch[]> {
   const patches: ConfigPatch[] = [];
 

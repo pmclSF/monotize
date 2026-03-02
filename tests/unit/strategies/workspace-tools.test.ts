@@ -5,8 +5,9 @@ import {
   generateWorkspaceToolConfig,
   getWorkspaceToolDependencies,
   updateScriptsForWorkspaceTool,
+  getWorkspaceToolRunCommand,
 } from '../../../src/strategies/workspace-tools.js';
-import type { PackageInfo } from '../../../src/types/index.js';
+import type { PackageInfo, PackageManagerConfig } from '../../../src/types/index.js';
 
 const createMockPackage = (
   name: string,
@@ -231,6 +232,33 @@ describe('workspace-tools', () => {
 
       expect(updated.build).toBe('turbo run build');
       expect(updated.custom).toBe('custom-cmd');
+    });
+  });
+
+  describe('getWorkspaceToolRunCommand', () => {
+    it('should return turbo run for turbo', () => {
+      expect(getWorkspaceToolRunCommand('turbo')).toBe('turbo run');
+    });
+
+    it('should return nx run-many for nx', () => {
+      expect(getWorkspaceToolRunCommand('nx')).toBe('nx run-many --target=');
+    });
+
+    it('should return pnpm -r for none without pmConfig', () => {
+      expect(getWorkspaceToolRunCommand('none')).toBe('pnpm -r');
+    });
+
+    it('should use pmConfig runAllCommand for none when provided', () => {
+      const pmConfig: PackageManagerConfig = {
+        type: 'yarn',
+        installCommand: 'yarn install',
+        addCommand: 'yarn add',
+        runCommand: 'yarn',
+        runAllCommand: (script: string) => `yarn workspaces foreach run ${script}`,
+        execCommand: 'yarn',
+      };
+      const result = getWorkspaceToolRunCommand('none', pmConfig);
+      expect(result).toBe('yarn workspaces foreach run');
     });
   });
 });

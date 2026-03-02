@@ -47,6 +47,79 @@ describe('analyzeEnvironment', () => {
     expect(noVersion).toBeDefined();
   });
 
+  it('should detect .node-version file', async () => {
+    const repoPath = await createTempFixture({
+      name: 'repo-node-version',
+      packageJson: { name: 'test', version: '1.0.0' },
+      files: { '.node-version': '20.11.0' },
+    });
+
+    const findings = await analyzeEnvironment(
+      [{ path: repoPath, name: 'repo-node-version' }],
+      logger,
+    );
+
+    // Should not flag as missing version file
+    expect(findings.find((f) => f.id.startsWith('env-no-node-version'))).toBeUndefined();
+  });
+
+  it('should detect engines.node in package.json', async () => {
+    const repoAPath = await createTempFixture({
+      name: 'repo-engines-a',
+      packageJson: { name: 'a', version: '1.0.0', engines: { node: '>=18' } },
+    });
+    const repoBPath = await createTempFixture({
+      name: 'repo-engines-b',
+      packageJson: { name: 'b', version: '1.0.0', engines: { node: '>=20' } },
+    });
+
+    const findings = await analyzeEnvironment(
+      [{ path: repoAPath, name: 'repo-engines-a' }, { path: repoBPath, name: 'repo-engines-b' }],
+      logger,
+    );
+
+    const mismatch = findings.find((f) => f.id === 'env-node-mismatch');
+    expect(mismatch).toBeDefined();
+  });
+
+  it('should handle malformed package.json gracefully', async () => {
+    const repoPath = await createTempFixture({
+      name: 'repo-malformed-env',
+      files: {
+        'package.json': '{ invalid json !!!',
+      },
+    });
+
+    const findings = await analyzeEnvironment(
+      [{ path: repoPath, name: 'repo-malformed-env' }],
+      logger,
+    );
+
+    // Should not throw, just skip the malformed file
+    expect(Array.isArray(findings)).toBe(true);
+  });
+
+  it('should detect mismatch between .node-version and .nvmrc across repos', async () => {
+    const repoAPath = await createTempFixture({
+      name: 'repo-nodeversion',
+      packageJson: { name: 'a', version: '1.0.0' },
+      files: { '.node-version': '18.17.0' },
+    });
+    const repoBPath = await createTempFixture({
+      name: 'repo-nvmrc',
+      packageJson: { name: 'b', version: '1.0.0' },
+      files: { '.nvmrc': '20.10.0' },
+    });
+
+    const findings = await analyzeEnvironment(
+      [{ path: repoAPath, name: 'repo-nodeversion' }, { path: repoBPath, name: 'repo-nvmrc' }],
+      logger,
+    );
+
+    const mismatch = findings.find((f) => f.id === 'env-node-mismatch');
+    expect(mismatch).toBeDefined();
+  });
+
   it('should return no mismatch when all versions match', async () => {
     const repoAPath = await createTempFixture({
       name: 'repo-a',

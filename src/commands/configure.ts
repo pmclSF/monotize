@@ -4,6 +4,7 @@ import type { Command } from 'commander';
 import { createLogger, formatHeader } from '../utils/logger.js';
 import { pathExists, writeJson } from '../utils/fs.js';
 import { generateConfigPlan, applyConfigPlan } from '../strategies/configure.js';
+import { CliExitError } from '../utils/errors.js';
 
 interface CLIConfigureOptions {
   apply?: boolean;
@@ -21,7 +22,7 @@ async function configureCommand(monorepoDir: string, options: CLIConfigureOption
   // Validate the monorepo directory exists
   if (!(await pathExists(resolvedDir))) {
     logger.error(`Monorepo directory not found: ${resolvedDir}`);
-    process.exit(1);
+    throw new CliExitError();
   }
 
   // Discover packages in the packages directory

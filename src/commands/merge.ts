@@ -11,6 +11,7 @@ import type {
   PackageManagerConfig,
 } from '../types/index.js';
 import { createLogger, formatHeader, formatList } from '../utils/logger.js';
+import { CliExitError } from '../utils/errors.js';
 import {
   createTempDir,
   removeDir,
@@ -194,7 +195,7 @@ export async function mergeCommand(repos: string[], options: CLIOptions): Promis
   process.on('SIGINT', async () => {
     logger.warn('\nInterrupted. Cleaning up...');
     await cleanup();
-    process.exit(1);
+    process.exit(130); // 128 + SIGINT(2)
   });
 
   try {
@@ -218,7 +219,7 @@ export async function mergeCommand(repos: string[], options: CLIOptions): Promis
       for (const error of validation.errors) {
         logger.error(error);
       }
-      process.exit(1);
+      throw new CliExitError();
     }
 
     logger.success(`Found ${validation.sources.length} repositories to merge`);
@@ -232,6 +233,7 @@ export async function mergeCommand(repos: string[], options: CLIOptions): Promis
     const repoPaths = await cloneOrCopyRepos(validation.sources, tempDir, {
       logger,
       verbose: mergeOptions.verbose,
+      shallow: !mergeOptions.preserveHistory, // full clone needed for history preservation
     });
 
     // Step 3b: Auto-detect package manager if requested
@@ -250,7 +252,7 @@ export async function mergeCommand(repos: string[], options: CLIOptions): Promis
     if (!pmValidation.valid) {
       logger.error(pmValidation.error!);
       await cleanup();
-      process.exit(1);
+      throw new CliExitError();
     }
 
     // Create package manager config
@@ -526,9 +528,9 @@ resolution-mode=lowest
     const hasGitignoreCollision = collisions.some((c) => c.path === '.gitignore');
     if (!hasGitignoreCollision) {
       // Check if any repo has a .gitignore and merge them all
-      const gitignorePaths = movedRepoPaths
-        .map((r) => path.join(r.path, '.gitignore'))
-        .filter(async (p) => await pathExists(p));
+      const allGitignorePaths = movedRepoPaths.map((r) => path.join(r.path, '.gitignore'));
+      const gitignoreExists = await Promise.all(allGitignorePaths.map((p) => pathExists(p)));
+      const gitignorePaths = allGitignorePaths.filter((_, i) => gitignoreExists[i]);
 
       if (gitignorePaths.length > 0) {
         const merged = await mergeGitignores(gitignorePaths);
@@ -604,6 +606,6 @@ dist/
     }
 
     await cleanup();
-    process.exit(1);
+    throw new CliExitError();
   }
 }

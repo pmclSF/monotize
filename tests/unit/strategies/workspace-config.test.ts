@@ -3,8 +3,10 @@ import {
   generateWorkspaceConfig,
   updatePackageForWorkspace,
   generatePnpmWorkspaceYaml,
+  detectCrossDependencies,
+  rewriteToWorkspaceProtocol,
 } from '../../../src/strategies/workspace-config.js';
-import type { PackageInfo } from '../../../src/types/index.js';
+import type { PackageInfo, CrossDependency } from '../../../src/types/index.js';
 
 describe('Workspace Configuration', () => {
   describe('generateWorkspaceConfig', () => {
@@ -338,6 +340,169 @@ describe('Workspace Configuration', () => {
       const content = generatePnpmWorkspaceYaml('my-packages');
 
       expect(content).toBe("packages:\n  - 'my-packages/*'\n");
+    });
+  });
+
+  describe('detectCrossDependencies', () => {
+    const createPackageInfo = (
+      name: string,
+      overrides: Partial<PackageInfo> = {}
+    ): PackageInfo => ({
+      name,
+      version: '1.0.0',
+      dependencies: {},
+      devDependencies: {},
+      peerDependencies: {},
+      scripts: {},
+      path: `/packages/${name}`,
+      repoName: name,
+      ...overrides,
+    });
+
+    it('should detect dependencies between packages', () => {
+      const packages = [
+        createPackageInfo('core', { dependencies: {} }),
+        createPackageInfo('ui', { dependencies: { core: '^1.0.0' } }),
+      ];
+
+      const crossDeps = detectCrossDependencies(packages);
+      expect(crossDeps).toHaveLength(1);
+      expect(crossDeps[0]).toEqual({
+        fromPackage: 'ui',
+        toPackage: 'core',
+        currentVersion: '^1.0.0',
+        dependencyType: 'dependencies',
+      });
+    });
+
+    it('should detect devDependencies between packages', () => {
+      const packages = [
+        createPackageInfo('test-utils'),
+        createPackageInfo('app', { devDependencies: { 'test-utils': '^1.0.0' } }),
+      ];
+
+      const crossDeps = detectCrossDependencies(packages);
+      expect(crossDeps).toHaveLength(1);
+      expect(crossDeps[0].dependencyType).toBe('devDependencies');
+    });
+
+    it('should detect peerDependencies between packages', () => {
+      const packages = [
+        createPackageInfo('react-core'),
+        createPackageInfo('react-plugin', { peerDependencies: { 'react-core': '>=1.0.0' } }),
+      ];
+
+      const crossDeps = detectCrossDependencies(packages);
+      expect(crossDeps).toHaveLength(1);
+      expect(crossDeps[0].dependencyType).toBe('peerDependencies');
+    });
+
+    it('should return empty for no cross-dependencies', () => {
+      const packages = [
+        createPackageInfo('a', { dependencies: { lodash: '^4.17.21' } }),
+        createPackageInfo('b', { dependencies: { express: '^4.18.0' } }),
+      ];
+
+      const crossDeps = detectCrossDependencies(packages);
+      expect(crossDeps).toEqual([]);
+    });
+
+    it('should detect multiple cross-dependencies', () => {
+      const packages = [
+        createPackageInfo('core'),
+        createPackageInfo('utils'),
+        createPackageInfo('app', {
+          dependencies: { core: '^1.0.0', utils: '^1.0.0' },
+          devDependencies: { core: '^1.0.0' },
+        }),
+      ];
+
+      const crossDeps = detectCrossDependencies(packages);
+      expect(crossDeps.length).toBeGreaterThanOrEqual(3);
+    });
+
+    it('should handle empty packages array', () => {
+      expect(detectCrossDependencies([])).toEqual([]);
+    });
+  });
+
+  describe('rewriteToWorkspaceProtocol', () => {
+    it('should rewrite cross-dep versions to workspace:*', () => {
+      const pkgJson: Record<string, unknown> = {
+        name: 'app',
+        dependencies: { core: '^1.0.0', lodash: '^4.17.21' },
+      };
+      const crossDeps: CrossDependency[] = [
+        { fromPackage: 'app', toPackage: 'core', currentVersion: '^1.0.0', dependencyType: 'dependencies' },
+      ];
+
+      const result = rewriteToWorkspaceProtocol(pkgJson, crossDeps);
+      expect((result.dependencies as Record<string, string>).core).toBe('workspace:*');
+      expect((result.dependencies as Record<string, string>).lodash).toBe('^4.17.21');
+    });
+
+    it('should rewrite devDependencies', () => {
+      const pkgJson: Record<string, unknown> = {
+        name: 'app',
+        devDependencies: { 'test-utils': '^1.0.0', vitest: '^2.0.0' },
+      };
+      const crossDeps: CrossDependency[] = [
+        { fromPackage: 'app', toPackage: 'test-utils', currentVersion: '^1.0.0', dependencyType: 'devDependencies' },
+      ];
+
+      const result = rewriteToWorkspaceProtocol(pkgJson, crossDeps);
+      expect((result.devDependencies as Record<string, string>)['test-utils']).toBe('workspace:*');
+      expect((result.devDependencies as Record<string, string>).vitest).toBe('^2.0.0');
+    });
+
+    it('should rewrite peerDependencies', () => {
+      const pkgJson: Record<string, unknown> = {
+        name: 'plugin',
+        peerDependencies: { core: '>=1.0.0' },
+      };
+      const crossDeps: CrossDependency[] = [
+        { fromPackage: 'plugin', toPackage: 'core', currentVersion: '>=1.0.0', dependencyType: 'peerDependencies' },
+      ];
+
+      const result = rewriteToWorkspaceProtocol(pkgJson, crossDeps);
+      expect((result.peerDependencies as Record<string, string>).core).toBe('workspace:*');
+    });
+
+    it('should not modify already workspace: prefixed versions', () => {
+      const pkgJson: Record<string, unknown> = {
+        name: 'app',
+        dependencies: { core: 'workspace:*' },
+      };
+      const crossDeps: CrossDependency[] = [
+        { fromPackage: 'app', toPackage: 'core', currentVersion: 'workspace:*', dependencyType: 'dependencies' },
+      ];
+
+      const result = rewriteToWorkspaceProtocol(pkgJson, crossDeps);
+      expect((result.dependencies as Record<string, string>).core).toBe('workspace:*');
+    });
+
+    it('should handle missing dependency sections gracefully', () => {
+      const pkgJson: Record<string, unknown> = { name: 'empty' };
+      const crossDeps: CrossDependency[] = [];
+
+      const result = rewriteToWorkspaceProtocol(pkgJson, crossDeps);
+      expect(result.dependencies).toBeUndefined();
+      expect(result.devDependencies).toBeUndefined();
+      expect(result.peerDependencies).toBeUndefined();
+    });
+
+    it('should not mutate the original package.json', () => {
+      const pkgJson: Record<string, unknown> = {
+        name: 'app',
+        dependencies: { core: '^1.0.0' },
+      };
+      const crossDeps: CrossDependency[] = [
+        { fromPackage: 'app', toPackage: 'core', currentVersion: '^1.0.0', dependencyType: 'dependencies' },
+      ];
+
+      const result = rewriteToWorkspaceProtocol(pkgJson, crossDeps);
+      expect((pkgJson.dependencies as Record<string, string>).core).toBe('^1.0.0');
+      expect((result.dependencies as Record<string, string>).core).toBe('workspace:*');
     });
   });
 });

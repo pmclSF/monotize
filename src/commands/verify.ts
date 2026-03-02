@@ -3,6 +3,7 @@ import chalk from 'chalk';
 import type { VerifyCheck, VerifyResult, VerifyTier } from '../types/index.js';
 import { pathExists, readJson } from '../utils/fs.js';
 import { createLogger, formatHeader } from '../utils/logger.js';
+import { CliExitError } from '../utils/errors.js';
 import { validatePlan } from './apply.js';
 import {
   type VerifyContext,
@@ -42,11 +43,11 @@ export async function verifyCommand(options: CLIVerifyOptions): Promise<void> {
   // Validate exactly one of --plan / --dir
   if (options.plan && options.dir) {
     logger.error('Specify either --plan or --dir, not both');
-    process.exit(1);
+    throw new CliExitError();
   }
   if (!options.plan && !options.dir) {
     logger.error('Specify either --plan <file> or --dir <directory>');
-    process.exit(1);
+    throw new CliExitError();
   }
 
   let ctx: VerifyContext;
@@ -58,12 +59,12 @@ export async function verifyCommand(options: CLIVerifyOptions): Promise<void> {
     inputPath = path.resolve(options.plan);
     if (!(await pathExists(inputPath))) {
       logger.error(`Plan file not found: ${inputPath}`);
-      process.exit(1);
+      throw new CliExitError();
     }
     const data = await readJson(inputPath);
     if (!validatePlan(data)) {
       logger.error('Invalid plan file');
-      process.exit(1);
+      throw new CliExitError();
     }
     ctx = { plan: data, dir: null };
   } else {
@@ -71,11 +72,11 @@ export async function verifyCommand(options: CLIVerifyOptions): Promise<void> {
     inputPath = path.resolve(options.dir!);
     if (!(await pathExists(inputPath))) {
       logger.error(`Directory not found: ${inputPath}`);
-      process.exit(1);
+      throw new CliExitError();
     }
     if (!(await pathExists(path.join(inputPath, 'package.json')))) {
       logger.error(`No package.json found in ${inputPath}`);
-      process.exit(1);
+      throw new CliExitError();
     }
     ctx = { plan: null, dir: inputPath };
   }
@@ -140,7 +141,9 @@ export async function verifyCommand(options: CLIVerifyOptions): Promise<void> {
     printVerifyReport(result, options.verbose ?? false);
   }
 
-  process.exit(result.ok ? 0 : 1);
+  if (!result.ok) {
+    throw new CliExitError();
+  }
 }
 
 function printVerifyReport(result: VerifyResult, verbose: boolean): void {

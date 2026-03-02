@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createLogger } from '../utils/logger.js';
+import { CliExitError } from '../utils/errors.js';
 
 interface CLIUiOptions {
   port: string;
@@ -15,7 +16,7 @@ export async function uiCommand(options: CLIUiOptions): Promise<void> {
 
   if (isNaN(port) || port < 0 || port > 65535) {
     logger.error(`Invalid port: ${options.port}`);
-    process.exit(1);
+    throw new CliExitError();
   }
 
   // Dynamic import to avoid loading express/ws when running other CLI commands

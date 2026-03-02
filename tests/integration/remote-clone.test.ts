@@ -385,6 +385,7 @@ describe('Remote Cloning Integration', () => {
         cloneOrCopyRepos(sources, testDir, {
           logger: mockLogger,
           maxRetries: 1,
+          concurrency: 1, // Sequential so failure stops before third repo
         })
       ).rejects.toThrow(/Repository not found/);
 

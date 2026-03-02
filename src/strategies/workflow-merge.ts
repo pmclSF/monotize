@@ -1,4 +1,5 @@
 import path from 'node:path';
+import yaml from 'js-yaml';
 import type { WorkflowMergeOptions, WorkflowMergeStrategy } from '../types/index.js';
 import { pathExists, readFile, writeFile, ensureDir, listFiles } from '../utils/fs.js';
 
@@ -40,209 +41,18 @@ interface WorkflowStep {
 }
 
 /**
- * Parse YAML content into a workflow object
- * Note: This is a simplified YAML parser for GitHub Actions workflows
+ * Parse YAML content into a workflow object using js-yaml
  */
 function parseYaml(content: string): GitHubWorkflow {
-  const lines = content.split('\n');
-  const result: Record<string, unknown> = {};
-  const stack: { indent: number; obj: Record<string, unknown>; key?: string }[] = [
-    { indent: -1, obj: result },
-  ];
-
-  let currentArray: unknown[] | null = null;
-  let currentArrayKey: string | null = null;
-  let currentArrayIndent = 0;
-
-  for (const line of lines) {
-    // Skip empty lines and comments
-    if (!line.trim() || line.trim().startsWith('#')) {
-      continue;
-    }
-
-    const indent = line.search(/\S/);
-    const trimmed = line.trim();
-
-    // Handle array items
-    if (trimmed.startsWith('- ')) {
-      const value = trimmed.slice(2).trim();
-
-      if (currentArray && indent >= currentArrayIndent) {
-        if (value.includes(':')) {
-          // Object in array
-          const [objKey, objValue] = value.split(':').map((s) => s.trim());
-          const obj: Record<string, unknown> = {};
-          if (objValue) {
-            obj[objKey] = parseValue(objValue);
-          } else {
-            obj[objKey] = null;
-          }
-          currentArray.push(obj);
-        } else {
-          currentArray.push(parseValue(value));
-        }
-        continue;
-      }
-    }
-
-    // Handle key-value pairs
-    if (trimmed.includes(':')) {
-      const colonIndex = trimmed.indexOf(':');
-      const key = trimmed.slice(0, colonIndex).trim();
-      const value = trimmed.slice(colonIndex + 1).trim();
-
-      // Pop stack to find correct parent
-      while (stack.length > 1 && stack[stack.length - 1].indent >= indent) {
-        stack.pop();
-      }
-
-      const parent = stack[stack.length - 1].obj;
-
-      if (value === '' || value.startsWith('|') || value.startsWith('>')) {
-        // Nested object or multiline string
-        const newObj: Record<string, unknown> = {};
-        parent[key] = newObj;
-        stack.push({ indent, obj: newObj, key });
-        currentArray = null;
-        currentArrayKey = null;
-      } else if (value === '[]' || value === '{}') {
-        parent[key] = value === '[]' ? [] : {};
-      } else {
-        parent[key] = parseValue(value);
-      }
-
-      // Check if next line starts an array for this key
-      currentArrayKey = key;
-      currentArrayIndent = indent;
-    }
-
-    // Handle array start
-    if (trimmed.startsWith('- ') && !currentArray) {
-      // Pop stack to find correct parent
-      while (stack.length > 1 && stack[stack.length - 1].indent >= indent) {
-        stack.pop();
-      }
-
-      const parent = stack[stack.length - 1].obj;
-      if (currentArrayKey && parent[currentArrayKey] === undefined) {
-        const arr: unknown[] = [];
-        parent[currentArrayKey] = arr;
-        currentArray = arr;
-        currentArrayIndent = indent;
-
-        const value = trimmed.slice(2).trim();
-        if (value.includes(':')) {
-          const [objKey, objValue] = value.split(':').map((s) => s.trim());
-          const obj: Record<string, unknown> = {};
-          if (objValue) {
-            obj[objKey] = parseValue(objValue);
-          }
-          currentArray.push(obj);
-        } else if (value) {
-          currentArray.push(parseValue(value));
-        }
-      }
-    }
-  }
-
-  return result as GitHubWorkflow;
+  const result = yaml.load(content);
+  return (typeof result === 'object' && result !== null ? result : {}) as GitHubWorkflow;
 }
 
 /**
- * Parse a YAML value
+ * Convert a workflow object back to YAML string using js-yaml
  */
-function parseValue(value: string): unknown {
-  // Remove quotes
-  if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-    return value.slice(1, -1);
-  }
-
-  // Parse booleans
-  if (value === 'true') return true;
-  if (value === 'false') return false;
-
-  // Parse null
-  if (value === 'null' || value === '~') return null;
-
-  // Parse numbers
-  if (/^-?\d+$/.test(value)) return parseInt(value, 10);
-  if (/^-?\d+\.\d+$/.test(value)) return parseFloat(value);
-
-  return value;
-}
-
-/**
- * Convert a workflow object back to YAML string
- */
-function stringifyYaml(obj: unknown, indent = 0): string {
-  const prefix = '  '.repeat(indent);
-  let result = '';
-
-  if (obj === null || obj === undefined) {
-    return 'null';
-  }
-
-  if (typeof obj !== 'object') {
-    if (typeof obj === 'string') {
-      // Quote strings with special characters
-      if (obj.includes(':') || obj.includes('#') || obj.includes('\n') || obj.startsWith(' ') || obj.includes('\\') || obj.includes('"')) {
-        // Escape backslashes first, then double quotes
-        const escaped = obj.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-        return `"${escaped}"`;
-      }
-      return obj;
-    }
-    return String(obj);
-  }
-
-  if (Array.isArray(obj)) {
-    if (obj.length === 0) {
-      return '[]';
-    }
-    for (const item of obj) {
-      if (typeof item === 'object' && item !== null) {
-        result += `${prefix}- `;
-        const entries = Object.entries(item);
-        if (entries.length > 0) {
-          const [firstKey, firstValue] = entries[0];
-          result += `${firstKey}: ${stringifyYaml(firstValue, 0)}\n`;
-          for (let i = 1; i < entries.length; i++) {
-            const [key, value] = entries[i];
-            if (typeof value === 'object' && value !== null) {
-              result += `${prefix}  ${key}:\n${stringifyYaml(value, indent + 2)}`;
-            } else {
-              result += `${prefix}  ${key}: ${stringifyYaml(value, 0)}\n`;
-            }
-          }
-        }
-      } else {
-        result += `${prefix}- ${stringifyYaml(item, 0)}\n`;
-      }
-    }
-    return result;
-  }
-
-  // Object
-  const entries = Object.entries(obj);
-  if (entries.length === 0) {
-    return '{}';
-  }
-
-  for (const [key, value] of entries) {
-    if (typeof value === 'object' && value !== null) {
-      if (Array.isArray(value) && value.length === 0) {
-        result += `${prefix}${key}: []\n`;
-      } else if (!Array.isArray(value) && Object.keys(value).length === 0) {
-        result += `${prefix}${key}: {}\n`;
-      } else {
-        result += `${prefix}${key}:\n${stringifyYaml(value, indent + 1)}`;
-      }
-    } else {
-      result += `${prefix}${key}: ${stringifyYaml(value, 0)}\n`;
-    }
-  }
-
-  return result;
+function stringifyYaml(obj: unknown): string {
+  return yaml.dump(obj, { lineWidth: -1, noRefs: true, quotingType: '"' });
 }
 
 /**

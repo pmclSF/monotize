@@ -32,6 +32,7 @@ interface ConfigureResult {
 export function ConfigurePage({ ws, options, packageNames, onComplete, onSkip }: ConfigurePageProps) {
   const op = useOperation(ws);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [namesInput, setNamesInput] = useState(packageNames.join(', '));
 
   const names = namesInput.split(/[\n,]/).map((s) => s.trim()).filter(Boolean);
@@ -47,7 +48,7 @@ export function ConfigurePage({ ws, options, packageNames, onComplete, onSkip }:
       });
       op.start(opId);
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Request failed');
+      setError(err instanceof Error ? err.message : 'Request failed');
     } finally {
       setLoading(false);
     }
@@ -58,6 +59,7 @@ export function ConfigurePage({ ws, options, packageNames, onComplete, onSkip }:
   return (
     <div>
       <h2>4. Configure Workspace</h2>
+      {error && <div className="error-message" role="alert">{error}</div>}
 
       <div className="form-group">
         <label>Package names (comma or newline separated)</label>

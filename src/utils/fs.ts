@@ -20,6 +20,7 @@ export async function copyDir(
 ): Promise<void> {
   await fs.copy(src, dest, {
     overwrite: true,
+    dereference: false,
     filter: options?.filter,
   });
 }
