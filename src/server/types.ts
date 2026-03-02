@@ -22,6 +22,8 @@ export type WsClientMessage =
 export interface ServerOptions {
   /** Port to listen on (0 for OS-assigned) */
   port: number;
+  /** Interface to bind to. Defaults to loopback for local-only access. */
+  host?: string;
   /** Directory containing pre-built UI assets to serve statically */
   staticDir?: string;
 }

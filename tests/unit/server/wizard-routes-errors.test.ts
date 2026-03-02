@@ -30,7 +30,7 @@ describe('wizard routes error handling', () => {
     app.use('/api/wizard', wizardRoute());
     server = http.createServer(app);
     await new Promise<void>((resolve) => {
-      server.listen(0, resolve);
+      server.listen(0, '127.0.0.1', resolve);
     });
   });
 

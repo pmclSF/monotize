@@ -119,7 +119,8 @@ export function createServer(options: ServerOptions): ServerResult {
     wss.close();
   });
 
-  server.listen(options.port);
+  // Bind to loopback by default to avoid exposing the local UI server externally.
+  server.listen(options.port, options.host ?? '127.0.0.1');
 
   return { server, token };
 }
