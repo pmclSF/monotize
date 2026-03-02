@@ -121,6 +121,14 @@ export async function prepareCommand(repos: string[], options: CLIPrepareOptions
       const branchName = 'prepare/monotize';
       const successfullyAppliedPatches: string[] = [];
 
+      // Safety check: only apply patches to repos cloned/copied inside the prep workspace.
+      for (const repo of repoPaths) {
+        const rel = path.relative(workspaceDir, repo.path);
+        if (rel.startsWith('..') || path.isAbsolute(rel)) {
+          throw new Error(`Safety check failed: refusing to modify repo outside workspace (${repo.path})`);
+        }
+      }
+
       for (const repo of repoPaths) {
         // Initialize git if needed (local copies may not have .git)
         try {
