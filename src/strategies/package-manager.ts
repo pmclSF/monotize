@@ -269,6 +269,13 @@ export function getPackageManagerField(pm: PackageManagerConfig): string {
  * Parse package manager type from CLI input
  */
 export function parsePackageManagerType(input: string): PackageManagerType {
+  return tryParsePackageManagerType(input) ?? 'pnpm';
+}
+
+/**
+ * Parse package manager type from CLI input, returning null for invalid values.
+ */
+export function tryParsePackageManagerType(input: string): PackageManagerType | null {
   const normalized = input.toLowerCase().trim();
 
   switch (normalized) {
@@ -284,7 +291,7 @@ export function parsePackageManagerType(input: string): PackageManagerType {
     case 'npm':
       return 'npm';
     default:
-      return 'pnpm'; // Default to pnpm
+      return null;
   }
 }
 

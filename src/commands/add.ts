@@ -1,8 +1,10 @@
 import path from 'node:path';
 import { createLogger } from '../utils/logger.js';
 import { writeJson } from '../utils/fs.js';
+import { parseConflictStrategy } from '../utils/cli-options.js';
+import { tryParsePackageManagerType } from '../strategies/package-manager.js';
 import { generateAddPlan, applyAddPlan } from '../strategies/add.js';
-import type { AddCommandOptions, ConflictStrategy, PackageManagerType } from '../types/index.js';
+import type { AddCommandOptions } from '../types/index.js';
 
 interface CLIAddOptions {
   to: string;
@@ -16,15 +18,33 @@ interface CLIAddOptions {
 
 export async function addCommand(repo: string, options: CLIAddOptions): Promise<void> {
   const logger = createLogger(options.verbose);
+  const conflictStrategy = parseConflictStrategy(options.conflictStrategy);
+  const packageManager = tryParsePackageManagerType(options.packageManager);
+
+  if (!conflictStrategy) {
+    logger.error(
+      `Invalid conflict strategy: ${options.conflictStrategy}. Valid options: highest, lowest, prompt`
+    );
+    process.exitCode = 1;
+    return;
+  }
+
+  if (!packageManager) {
+    logger.error(
+      `Invalid package manager: ${options.packageManager}. Valid options: pnpm, yarn, yarn-berry, npm`
+    );
+    process.exitCode = 1;
+    return;
+  }
 
   const cmdOptions: AddCommandOptions = {
     to: path.resolve(options.to),
     packagesDir: options.packagesDir,
     out: options.out,
     apply: options.apply,
-    conflictStrategy: options.conflictStrategy as ConflictStrategy,
+    conflictStrategy,
     verbose: options.verbose,
-    packageManager: options.packageManager as PackageManagerType,
+    packageManager,
   };
 
   try {

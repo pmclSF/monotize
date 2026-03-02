@@ -28,6 +28,11 @@ import {
   promptFileCollisionStrategy,
   promptConfirm,
 } from '../utils/prompts.js';
+import {
+  parseConflictStrategy,
+  parseWorkspaceTool,
+  parseWorkflowStrategy,
+} from '../utils/cli-options.js';
 import { analyzeDependencies } from '../analyzers/dependencies.js';
 import { detectFileCollisions } from '../analyzers/files.js';
 import { cloneOrCopyRepos } from '../strategies/copy.js';
@@ -57,7 +62,7 @@ import {
   generateWorkspaceFiles,
   getWorkspacesConfig,
   getPackageManagerField,
-  parsePackageManagerType,
+  tryParsePackageManagerType,
   validatePackageManager,
   getPackageManagerDisplayName,
 } from '../strategies/package-manager.js';
@@ -157,6 +162,30 @@ function printDryRunReport(
 export async function mergeCommand(repos: string[], options: CLIOptions): Promise<void> {
   const logger = createLogger(options.verbose);
   let tempDir: string | null = null;
+  const parsedConflictStrategy = parseConflictStrategy(options.conflictStrategy);
+  const parsedWorkspaceTool = parseWorkspaceTool(options.workspaceTool || 'none');
+  const parsedWorkflowStrategy = parseWorkflowStrategy(options.workflowStrategy || 'combine');
+
+  if (!parsedConflictStrategy) {
+    logger.error(
+      `Invalid conflict strategy: ${options.conflictStrategy}. Valid options: highest, lowest, prompt`
+    );
+    throw new CliExitError();
+  }
+
+  if (!parsedWorkspaceTool) {
+    logger.error(
+      `Invalid workspace tool: ${options.workspaceTool}. Valid options: turbo, nx, none`
+    );
+    throw new CliExitError();
+  }
+
+  if (!parsedWorkflowStrategy) {
+    logger.error(
+      `Invalid workflow strategy: ${options.workflowStrategy}. Valid options: combine, keep-first, keep-last, skip`
+    );
+    throw new CliExitError();
+  }
 
   // Convert CLI options to MergeOptions (extended with Phase 2 options)
   const mergeOptions: MergeOptions & {
@@ -168,15 +197,15 @@ export async function mergeCommand(repos: string[], options: CLIOptions): Promis
     packagesDir: options.packagesDir,
     dryRun: options.dryRun,
     yes: options.yes,
-    conflictStrategy: options.conflictStrategy as ConflictStrategy,
+    conflictStrategy: parsedConflictStrategy,
     verbose: options.verbose,
     install: options.install,
     noHoist: options.hoist === false, // Commander: --no-hoist sets hoist to false
     pinVersions: options.pinVersions,
     // Phase 2 options
     preserveHistory: options.preserveHistory,
-    workspaceTool: (options.workspaceTool as WorkspaceTool) || 'none',
-    workflowStrategy: (options.workflowStrategy as WorkflowMergeStrategy) || 'combine',
+    workspaceTool: parsedWorkspaceTool,
+    workflowStrategy: parsedWorkflowStrategy,
   };
 
   // Robust cleanup function - doesn't throw on failure
@@ -200,7 +229,14 @@ export async function mergeCommand(repos: string[], options: CLIOptions): Promis
 
   try {
     // Step 0a: Determine package manager to use
-    let pmType: PackageManagerType = parsePackageManagerType(options.packageManager || 'pnpm');
+    const parsedPm = tryParsePackageManagerType(options.packageManager || 'pnpm');
+    if (!parsedPm) {
+      logger.error(
+        `Invalid package manager: ${options.packageManager}. Valid options: pnpm, yarn, yarn-berry, npm`
+      );
+      throw new CliExitError();
+    }
+    let pmType: PackageManagerType = parsedPm;
 
     // Step 0b: Check prerequisites for history preservation
     if (mergeOptions.preserveHistory) {

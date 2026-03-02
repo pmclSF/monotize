@@ -8,3 +8,4 @@ export * from './errors.js';
 export * from './concurrency.js';
 export * from './disk.js';
 export * from './progress.js';
+export * from './cli-options.js';
