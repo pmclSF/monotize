@@ -109,6 +109,11 @@ jobs:
       - name: Build
         run: pnpm build
 
+      - name: CLI smoke test
+        run: |
+          node dist/index.js --version
+          node dist/index.js merge --help
+
       - name: Type check
         run: pnpm typecheck
 
