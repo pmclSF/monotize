@@ -29,37 +29,54 @@ export async function uiCommand(options: CLIUiOptions): Promise<void> {
   const uiDistDir = path.resolve(__dirname, '../ui/dist');
 
   const { server, token } = createServer({ port, staticDir: uiDistDir });
+  await new Promise<void>((resolve, reject) => {
+    const onListening = () => {
+      const addr = server.address();
+      const actualPort = typeof addr === 'object' && addr ? addr.port : port;
+      const url = `http://localhost:${actualPort}`;
 
-  server.on('listening', () => {
-    const addr = server.address();
-    const actualPort = typeof addr === 'object' && addr ? addr.port : port;
-    const url = `http://localhost:${actualPort}`;
+      logger.success(`Server running at ${url}`);
+      logger.info(`Auth token: ${token}`);
+      logger.info('Pass this token as Authorization: Bearer <token> for API requests');
+      logger.info('Press Ctrl+C to stop');
 
-    logger.success(`Server running at ${url}`);
-    logger.info(`Auth token: ${token}`);
-    logger.info('Pass this token as Authorization: Bearer <token> for API requests');
-    logger.info('Press Ctrl+C to stop');
+      if (options.open) {
+        const browserUrl = `${url}?token=${token}`;
+        const cmd =
+          process.platform === 'darwin'
+            ? 'open'
+            : process.platform === 'win32'
+              ? 'start'
+              : 'xdg-open';
+        execFile(cmd, [browserUrl], (err) => {
+          if (err) logger.debug(`Failed to open browser: ${err.message}`);
+        });
+      }
+    };
 
-    if (options.open) {
-      const browserUrl = `${url}?token=${token}`;
-      const cmd =
-        process.platform === 'darwin'
-          ? 'open'
-          : process.platform === 'win32'
-            ? 'start'
-            : 'xdg-open';
-      execFile(cmd, [browserUrl], (err) => {
-        if (err) logger.debug(`Failed to open browser: ${err.message}`);
-      });
-    }
-  });
+    const onError = (err: NodeJS.ErrnoException) => {
+      cleanup();
+      if (err.code === 'EADDRINUSE') {
+        logger.error(`Port ${port} is already in use. Try a different port with -p.`);
+      } else {
+        logger.error(`Server error: ${err.message}`);
+      }
+      reject(new CliExitError());
+    };
 
-  server.on('error', (err: NodeJS.ErrnoException) => {
-    if (err.code === 'EADDRINUSE') {
-      logger.error(`Port ${port} is already in use. Try a different port with -p.`);
-    } else {
-      logger.error(`Server error: ${err.message}`);
-    }
-    process.exit(1);
+    const onClose = () => {
+      cleanup();
+      resolve();
+    };
+
+    const cleanup = () => {
+      server.off('listening', onListening);
+      server.off('error', onError);
+      server.off('close', onClose);
+    };
+
+    server.on('listening', onListening);
+    server.on('error', onError);
+    server.on('close', onClose);
   });
 }
