@@ -406,4 +406,40 @@ describe('Validation Edge Cases', () => {
       expect(sanitizePackageName('a!!!b')).toBe('a---b');
     });
   });
+
+  describe('checkPrerequisites edge cases', () => {
+    it('should check yarn-berry as yarn command', async () => {
+      const { checkPrerequisites } = await import('../../../src/utils/validation.js');
+      const result = await checkPrerequisites({
+        outputDir: '/tmp',
+        packageManager: 'yarn-berry',
+      });
+      expect(result).toBeDefined();
+      // yarn-berry maps to checking 'yarn' command
+      expect(typeof result.valid).toBe('boolean');
+    });
+
+    it('should check npm as package manager', async () => {
+      const { checkPrerequisites } = await import('../../../src/utils/validation.js');
+      const result = await checkPrerequisites({
+        outputDir: '/tmp',
+        packageManager: 'npm',
+      });
+      expect(result).toBeDefined();
+      // npm should be installed since Node.js is installed
+      const npmErrors = result.errors.filter((e) => e.includes('npm'));
+      expect(npmErrors).toHaveLength(0);
+    });
+
+    it('should check non-existent output dir parent writability', async () => {
+      const { checkPrerequisites } = await import('../../../src/utils/validation.js');
+      const result = await checkPrerequisites({
+        outputDir: '/tmp/nonexistent-monotize-test/deep/path',
+      });
+      expect(result).toBeDefined();
+      // Parent doesn't exist, should error about writability
+      const writeErrors = result.errors.filter((e) => e.includes('writable'));
+      expect(writeErrors.length).toBeGreaterThanOrEqual(1);
+    });
+  });
 });

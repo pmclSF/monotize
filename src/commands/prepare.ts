@@ -2,6 +2,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import chalk from 'chalk';
 import { createLogger, formatHeader } from '../utils/logger.js';
+import { CliExitError } from '../utils/errors.js';
 import {
   createTempDir,
   removeDir,
@@ -24,7 +25,9 @@ interface CLIPrepareOptions {
   patchOnly?: boolean;
   outDir?: string;
   prepWorkspace?: string;
+  out?: string;
   verbose?: boolean;
+  json?: boolean;
 }
 
 /**
@@ -38,7 +41,7 @@ export async function prepareCommand(repos: string[], options: CLIPrepareOptions
   // Validate mutually exclusive flags
   if (options.patchOnly && options.prepWorkspace) {
     logger.error('--patch-only and --prep-workspace are mutually exclusive');
-    process.exit(1);
+    throw new CliExitError();
   }
 
   // Robust cleanup function
@@ -56,7 +59,7 @@ export async function prepareCommand(repos: string[], options: CLIPrepareOptions
   process.on('SIGINT', async () => {
     logger.warn('\nInterrupted. Cleaning up...');
     await cleanup();
-    process.exit(1);
+    process.exit(130); // 128 + SIGINT(2)
   });
 
   try {
@@ -68,7 +71,7 @@ export async function prepareCommand(repos: string[], options: CLIPrepareOptions
       for (const error of validation.errors) {
         logger.error(error);
       }
-      process.exit(1);
+      throw new CliExitError();
     }
 
     logger.success(`Found ${validation.sources.length} repositories to prepare`);
@@ -116,6 +119,15 @@ export async function prepareCommand(repos: string[], options: CLIPrepareOptions
       // --prep-workspace mode: apply patches, commit on branch
       const workspaceDir = path.resolve(options.prepWorkspace);
       const branchName = 'prepare/monotize';
+      const successfullyAppliedPatches: string[] = [];
+
+      // Safety check: only apply patches to repos cloned/copied inside the prep workspace.
+      for (const repo of repoPaths) {
+        const rel = path.relative(workspaceDir, repo.path);
+        if (rel.startsWith('..') || path.isAbsolute(rel)) {
+          throw new Error(`Safety check failed: refusing to modify repo outside workspace (${repo.path})`);
+        }
+      }
 
       for (const repo of repoPaths) {
         // Initialize git if needed (local copies may not have .git)
@@ -132,29 +144,50 @@ export async function prepareCommand(repos: string[], options: CLIPrepareOptions
 
         // Apply patches for this repo
         const repoPatches = analysis.patches.filter((p) => p.repoName === repo.name);
+        const applied: string[] = [];
+        const failed: string[] = [];
         for (const patch of repoPatches) {
           const patchPath = path.join(repo.path, '__temp_patch.diff');
           await writeFile(patchPath, patch.content);
           try {
             execFileSync('git', ['apply', patchPath], { cwd: repo.path, stdio: 'pipe' });
+            applied.push(patch.filename);
+            successfullyAppliedPatches.push(patch.filename);
           } catch (applyError) {
             logger.warn(`Failed to apply patch ${patch.filename}: ${applyError instanceof Error ? applyError.message : String(applyError)}`);
+            failed.push(patch.filename);
           }
           // Remove temp patch file
           await removeDir(patchPath);
         }
 
-        if (repoPatches.length > 0) {
+        if (applied.length > 0) {
           // Stage and commit
           execFileSync('git', ['add', '-A'], { cwd: repo.path, stdio: 'pipe' });
-          execFileSync(
-            'git',
-            ['-c', 'user.email=monotize@monotize.dev', '-c', 'user.name=monotize', 'commit', '-m', 'chore: pre-migration preparation (monotize)'],
-            { cwd: repo.path, stdio: 'pipe' }
-          );
-          logger.success(`Applied ${repoPatches.length} patches to ${repo.name}`);
+          const status = execFileSync('git', ['status', '--porcelain'], {
+            cwd: repo.path,
+            encoding: 'utf-8',
+          }).trim();
+
+          if (status.length > 0) {
+            execFileSync(
+              'git',
+              ['-c', 'user.email=monotize@monotize.dev', '-c', 'user.name=monotize', 'commit', '-m', 'chore: pre-migration preparation (monotize)'],
+              { cwd: repo.path, stdio: 'pipe' }
+            );
+          } else {
+            logger.warn(`No staged changes to commit for ${repo.name} after patch apply`);
+          }
+
+          logger.success(`Applied ${applied.length}/${repoPatches.length} patches to ${repo.name}`);
+        } else if (repoPatches.length > 0) {
+          logger.warn(`No patches were applied to ${repo.name}`);
         } else {
           logger.info(`No patches needed for ${repo.name}`);
+        }
+
+        if (failed.length > 0) {
+          logger.warn(`Failed patches for ${repo.name}: ${failed.join(', ')}`);
         }
       }
 
@@ -169,7 +202,7 @@ export async function prepareCommand(repos: string[], options: CLIPrepareOptions
         targetNodeVersion,
         targetPackageManager,
         branchName,
-        appliedPatches: analysis.patches.map((p) => p.filename),
+        appliedPatches: successfullyAppliedPatches,
       };
 
       await writeJson(path.join(monotizeDir, 'config.json'), config, { spaces: 2 });
@@ -225,6 +258,20 @@ export async function prepareCommand(repos: string[], options: CLIPrepareOptions
       logger.log(checklistMd);
     }
 
+    // --out mode: write PreparationPlan JSON
+    if (options.out) {
+      const { writeJson: wj } = await import('../utils/fs.js');
+      const planOut = path.resolve(options.out);
+      const preparationPlan = {
+        schemaVersion: 1 as const,
+        createdAt: new Date().toISOString(),
+        checklist: analysis.checklist,
+        patches: analysis.patches,
+      };
+      await wj(planOut, preparationPlan);
+      logger.success(`PreparationPlan written to ${planOut}`);
+    }
+
     // Cleanup temp dir if we created one
     await cleanup();
   } catch (error) {
@@ -236,6 +283,6 @@ export async function prepareCommand(repos: string[], options: CLIPrepareOptions
     }
 
     await cleanup();
-    process.exit(1);
+    throw new CliExitError();
   }
 }

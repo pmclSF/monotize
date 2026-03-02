@@ -1,4 +1,5 @@
 import path from 'node:path';
+import yaml from 'js-yaml';
 import type { LockfileResolution } from '../types/index.js';
 import { pathExists, readFile } from '../utils/fs.js';
 
@@ -18,8 +19,8 @@ export async function parseLockfile(
       if (Object.keys(resolvedVersions).length > 0) {
         return { packageManager: 'pnpm', repoName, resolvedVersions };
       }
-    } catch {
-      // Parse failure — fall through
+    } catch (_err) {
+      // pnpm-lock.yaml parse failure — fall through
     }
   }
 
@@ -32,8 +33,8 @@ export async function parseLockfile(
       if (Object.keys(resolvedVersions).length > 0) {
         return { packageManager: 'yarn', repoName, resolvedVersions };
       }
-    } catch {
-      // Parse failure — fall through
+    } catch (_err) {
+      // yarn.lock parse failure — fall through
     }
   }
 
@@ -46,8 +47,8 @@ export async function parseLockfile(
       if (Object.keys(resolvedVersions).length > 0) {
         return { packageManager: 'npm', repoName, resolvedVersions };
       }
-    } catch {
-      // Parse failure — fall through
+    } catch (_err) {
+      // package-lock.json parse failure — fall through
     }
   }
 
@@ -55,61 +56,58 @@ export async function parseLockfile(
 }
 
 /**
- * Parse pnpm-lock.yaml — extract dependency versions.
+ * Parse pnpm-lock.yaml — extract dependency versions using js-yaml.
  * Supports both lockfileVersion >= 6 (importers format) and older flat format.
  */
 export function parsePnpmLock(content: string): Record<string, string> {
   const result: Record<string, string> = {};
 
   try {
-    // Detect lockfile version
-    const versionMatch = content.match(/lockfileVersion:\s*'?(\d+(?:\.\d+)?)'?/);
-    const lockfileVersion = versionMatch ? parseFloat(versionMatch[1]) : 0;
+    const lockData = yaml.load(content) as Record<string, unknown> | null;
+    if (!lockData || typeof lockData !== 'object') return result;
 
+    const lockfileVersion = typeof lockData.lockfileVersion === 'string'
+      ? parseFloat(lockData.lockfileVersion)
+      : typeof lockData.lockfileVersion === 'number'
+        ? lockData.lockfileVersion
+        : 0;
+
+    // Modern format (lockfileVersion >= 6): importers['.'].dependencies/devDependencies
     if (lockfileVersion >= 6) {
-      // Modern format: importers['.'].dependencies / devDependencies
-      // Look for importers > '.' > dependencies/devDependencies sections
-      const importersMatch = content.match(/importers:\s*\n\s+['.]?\.?['.]?:\s*\n([\s\S]*?)(?=\nimporters:|\npackages:|\nlockfileVersion:|\n\S|$)/);
-      if (importersMatch) {
-        const importerBlock = importersMatch[1];
-        // Match entries like:   package-name:
-        //                         specifier: ^1.0.0
-        //                         version: 1.2.3
-        const entryPattern = /^\s{6,8}(\S+):\s*\n\s+specifier:.*\n\s+version:\s*['"]?([^('"\n\s]+)/gm;
-        let match;
-        while ((match = entryPattern.exec(importerBlock)) !== null) {
-          const name = match[1].replace(/^['"]|['"]$/g, '');
-          const version = match[2].replace(/\(.*$/, '').trim();
-          result[name] = version;
+      const importers = lockData.importers as Record<string, Record<string, unknown>> | undefined;
+      const rootImporter = importers?.['.'];
+      if (rootImporter) {
+        for (const section of ['dependencies', 'devDependencies'] as const) {
+          const deps = rootImporter[section] as Record<string, { version?: string; specifier?: string }> | undefined;
+          if (deps && typeof deps === 'object') {
+            for (const [name, entry] of Object.entries(deps)) {
+              if (entry && typeof entry === 'object' && entry.version) {
+                // Strip pnpm's version suffixes like "1.2.3(react@18.2.0)"
+                result[name] = entry.version.replace(/\(.*$/, '').trim();
+              }
+            }
+          }
         }
       }
     }
 
     // Flat format (older) or fallback: root-level dependencies/devDependencies
     if (Object.keys(result).length === 0) {
-      // Match root dependencies: section
-      const sections = ['dependencies:', 'devDependencies:'];
-      for (const sectionHeader of sections) {
-        const sectionRegex = new RegExp(
-          `^${sectionHeader}\\s*\\n((?:\\s{2}\\S.*\\n)*)`,
-          'm'
-        );
-        const sectionMatch = content.match(sectionRegex);
-        if (sectionMatch) {
-          const lines = sectionMatch[1].split('\n');
-          for (const line of lines) {
-            // Match "  package-name: version" or "  package-name: 'version'"
-            const lineMatch = line.match(/^\s{2}(\S+):\s+['"]?([^'"\n\s]+)/);
-            if (lineMatch) {
-              const name = lineMatch[1].replace(/^['"]|['"]$/g, '');
-              result[name] = lineMatch[2];
+      for (const section of ['dependencies', 'devDependencies'] as const) {
+        const deps = lockData[section] as Record<string, string | Record<string, unknown>> | undefined;
+        if (deps && typeof deps === 'object') {
+          for (const [name, value] of Object.entries(deps)) {
+            if (typeof value === 'string') {
+              result[name] = value;
+            } else if (typeof value === 'object' && value !== null && 'version' in value) {
+              result[name] = String((value as { version: unknown }).version);
             }
           }
         }
       }
     }
-  } catch {
-    // Return empty on any parse error
+  } catch (_err) {
+    // pnpm lock parse error; return empty
   }
 
   return result;
@@ -146,8 +144,8 @@ export function parseYarnLock(content: string): Record<string, string> {
         result[name] = match[2];
       }
     }
-  } catch {
-    // Return empty on any parse error
+  } catch (_err) {
+    // yarn lock parse error; return empty
   }
 
   return result;
@@ -192,8 +190,8 @@ export function parsePackageLock(content: string): Record<string, string> {
         }
       }
     }
-  } catch {
-    // Return empty on any parse error
+  } catch (_err) {
+    // package-lock.json parse error; return empty
   }
 
   return result;

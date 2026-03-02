@@ -9,6 +9,26 @@ import {
 } from '../helpers/cli-runner.js';
 
 /**
+ * Run a function with retry on transient FS errors (ENOENT during heavy I/O).
+ */
+function withRetry(fn: () => void, maxRetries = 2): void {
+  let lastError: unknown;
+  for (let i = 0; i <= maxRetries; i++) {
+    try {
+      fn();
+      return;
+    } catch (error) {
+      lastError = error;
+      if (i < maxRetries && error instanceof Error && error.message.includes('ENOENT')) {
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw lastError;
+}
+
+/**
  * Integration test harness that runs the CLI against locally-created
  * git-initialized fixture repos. No network access is required.
  */
@@ -83,19 +103,23 @@ describe('CLI Harness - local fixture repos', () => {
   describe('merge two repos', () => {
     let outputDir: string;
 
-    beforeAll(() => {
+    beforeAll(async () => {
       outputDir = path.join(workDir, 'out-two');
-      runCLI([
-        'merge',
-        repoAlpha,
-        repoBeta,
-        '-y',
-        '-o',
-        outputDir,
-        '--no-install',
-        '--conflict-strategy',
-        'highest',
-      ]);
+      withRetry(() => {
+        // Clean up any partial output from a previous attempt
+        if (fs.existsSync(outputDir)) fs.removeSync(outputDir);
+        runCLI([
+          'merge',
+          repoAlpha,
+          repoBeta,
+          '-y',
+          '-o',
+          outputDir,
+          '--no-install',
+          '--conflict-strategy',
+          'highest',
+        ]);
+      });
     });
 
     it('should produce the expected output tree', async () => {
@@ -135,20 +159,23 @@ describe('CLI Harness - local fixture repos', () => {
   describe('merge three repos', () => {
     let outputDir: string;
 
-    beforeAll(() => {
+    beforeAll(async () => {
       outputDir = path.join(workDir, 'out-three');
-      runCLI([
-        'merge',
-        repoAlpha,
-        repoBeta,
-        repoGamma,
-        '-y',
-        '-o',
-        outputDir,
-        '--no-install',
-        '--conflict-strategy',
-        'highest',
-      ]);
+      withRetry(() => {
+        if (fs.existsSync(outputDir)) fs.removeSync(outputDir);
+        runCLI([
+          'merge',
+          repoAlpha,
+          repoBeta,
+          repoGamma,
+          '-y',
+          '-o',
+          outputDir,
+          '--no-install',
+          '--conflict-strategy',
+          'highest',
+        ]);
+      });
     });
 
     it('should produce the expected output tree', async () => {

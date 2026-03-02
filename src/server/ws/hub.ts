@@ -5,6 +5,15 @@ import type { WsEvent, WsClientMessage } from '../types.js';
  * Manages WebSocket connections, operation subscriptions, and event broadcasting.
  */
 export class WsHub {
+  /** Maximum number of concurrent operations (SEC-06) */
+  private static MAX_CONCURRENT = 5;
+
+  /** Maximum buffered events per operation (SEC-06) */
+  private static MAX_EVENTS = 1000;
+
+  /** Number of currently active (non-completed) operations */
+  private activeCount = 0;
+
   /** Which opIds each client is subscribed to */
   private connections = new Map<WebSocket, Set<string>>();
 
@@ -54,20 +63,30 @@ export class WsHub {
 
   /**
    * Create a new operation and return its AbortController.
+   * Throws if the maximum concurrent operation limit is reached (SEC-06).
    */
   createOperation(opId: string): AbortController {
+    if (this.activeCount >= WsHub.MAX_CONCURRENT) {
+      throw new Error(
+        `Too many concurrent operations (max ${WsHub.MAX_CONCURRENT}). Try again later.`,
+      );
+    }
     const controller = new AbortController();
     this.operations.set(opId, { controller, events: [] });
+    this.activeCount++;
     return controller;
   }
 
   /**
    * Broadcast an event to all clients subscribed to its opId, and buffer it.
+   * The event buffer is capped at MAX_EVENTS per operation to prevent memory exhaustion (SEC-06).
    */
   broadcast(opId: string, event: WsEvent): void {
     const op = this.operations.get(opId);
     if (op) {
-      op.events.push(event);
+      if (op.events.length < WsHub.MAX_EVENTS) {
+        op.events.push(event);
+      }
     }
 
     for (const [ws, subs] of this.connections) {
@@ -104,8 +123,14 @@ export class WsHub {
 
   /**
    * Schedule cleanup of a completed operation after a delay.
+   * Decrements the active operation count since the operation is done.
    */
   scheduleCleanup(opId: string, delayMs = 5 * 60 * 1000): void {
+    // Decrement active count when operation completes (SEC-06)
+    if (this.operations.has(opId) && this.activeCount > 0) {
+      this.activeCount--;
+    }
+
     const existing = this.cleanupTimers.get(opId);
     if (existing) clearTimeout(existing);
 
@@ -129,5 +154,6 @@ export class WsHub {
     this.cleanupTimers.clear();
     this.operations.clear();
     this.connections.clear();
+    this.activeCount = 0;
   }
 }

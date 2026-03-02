@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { useWebSocket } from './hooks/useWebSocket';
 import { useWizardState } from './hooks/useWizardState';
 import { WizardStepper } from './components/WizardStepper';
@@ -11,6 +10,7 @@ import { MigrateBranchesPage } from './pages/MigrateBranchesPage';
 import { VerifyPage } from './pages/VerifyPage';
 import { ArchivePage } from './pages/ArchivePage';
 import { OperatePage } from './pages/OperatePage';
+import { WizardErrorBoundary } from './components/ErrorBoundary';
 
 const STEP_ORDER = [
   'assess', 'prepare', 'merge', 'configure',
@@ -20,7 +20,20 @@ const STEP_ORDER = [
 export function App() {
   const ws = useWebSocket();
   const wizard = useWizardState();
-  const [packageNames] = useState<string[]>([]);
+  const wsState = ws.connected
+    ? 'connected'
+    : ws.connectionFailed
+      ? 'failed'
+      : ws.reconnecting
+        ? 'reconnecting'
+        : 'disconnected';
+  const wsText = ws.connected
+    ? 'connected'
+    : ws.connectionFailed
+      ? 'connection failed'
+      : ws.reconnecting
+        ? `reconnecting (${ws.retryCount}/${ws.maxRetries})`
+        : 'disconnected';
 
   // While loading, show minimal UI
   if (wizard.loading) {
@@ -28,8 +41,16 @@ export function App() {
       <div className="app">
         <header className="app-header">
           <h1>monotize</h1>
+          <span className="ws-status" data-state={wsState} aria-live="polite">
+            {wsText}
+          </span>
         </header>
         <main className="app-main">
+          {ws.connectionFailed && (
+            <div className="error-message" role="alert">
+              Lost connection to the local server. Ensure `monorepo ui` is running, then refresh.
+            </div>
+          )}
           <p>Loading...</p>
         </main>
       </div>
@@ -42,11 +63,16 @@ export function App() {
       <div className="app">
         <header className="app-header">
           <h1>monotize</h1>
-          <span className="ws-status" data-connected={ws.connected}>
-            {ws.connected ? 'connected' : 'disconnected'}
+          <span className="ws-status" data-state={wsState} aria-live="polite">
+            {wsText}
           </span>
         </header>
         <main className="app-main">
+          {ws.connectionFailed && (
+            <div className="error-message" role="alert">
+              Lost connection to the local server. Ensure `monorepo ui` is running, then refresh.
+            </div>
+          )}
           <WizardSetup onInit={wizard.init} />
         </main>
       </div>
@@ -55,6 +81,7 @@ export function App() {
 
   const { state } = wizard;
   const currentStep = state.currentStep;
+  const packageNames = state.options.packageNames ?? [];
 
   const handleStepClick = (stepId: string) => {
     wizard.goToStep(stepId);
@@ -85,6 +112,11 @@ export function App() {
 
   const handlePlanPathChange = async (planPath: string) => {
     const updated = { ...state, options: { ...state.options, planPath } };
+    await wizard.save(updated);
+  };
+
+  const handlePackageNamesChange = async (names: string[]) => {
+    const updated = { ...state, options: { ...state.options, packageNames: names } };
     await wizard.save(updated);
   };
 
@@ -122,6 +154,7 @@ export function App() {
             repos={state.repos}
             options={state.options}
             onPlanPathChange={handlePlanPathChange}
+            onPackageNamesChange={handlePackageNamesChange}
             onComplete={() => handleComplete('merge')}
             onSkip={handleSkip}
           />
@@ -177,17 +210,31 @@ export function App() {
     <div className="app">
       <header className="app-header">
         <h1>monotize</h1>
-        <span className="ws-status" data-connected={ws.connected}>
-          {ws.connected ? 'connected' : 'disconnected'}
+        <span className="ws-status" data-state={wsState} aria-live="polite">
+          {wsText}
         </span>
       </header>
+      {ws.connectionFailed && (
+        <div className="error-message" role="alert">
+          Lost connection to the local server. Ensure `monorepo ui` is running, then refresh.
+        </div>
+      )}
       <WizardStepper
         steps={state.steps}
         currentStep={currentStep}
         onStepClick={handleStepClick}
       />
       <main className="app-main">
-        {renderCurrentPage()}
+        <WizardErrorBoundary
+          onGoBack={() => {
+            const idx = STEP_ORDER.indexOf(currentStep);
+            if (idx > 0) {
+              void wizard.goToStep(STEP_ORDER[idx - 1]);
+            }
+          }}
+        >
+          {renderCurrentPage()}
+        </WizardErrorBoundary>
       </main>
     </div>
   );

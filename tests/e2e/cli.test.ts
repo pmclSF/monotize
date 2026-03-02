@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import fs from 'fs-extra';
 import os from 'node:os';
@@ -36,7 +36,7 @@ describe('CLI End-to-End Tests', () => {
   });
 
   const runCLI = (args: string[], options: { cwd?: string } = {}) => {
-    return execSync(`node ${CLI_PATH} ${args.join(' ')}`, {
+    return execFileSync('node', [CLI_PATH, ...args], {
       cwd: options.cwd || process.cwd(),
       encoding: 'utf-8',
       stdio: 'pipe',
@@ -45,7 +45,7 @@ describe('CLI End-to-End Tests', () => {
 
   const runCLIExpectError = (args: string[], options: { cwd?: string } = {}) => {
     try {
-      execSync(`node ${CLI_PATH} ${args.join(' ')}`, {
+      execFileSync('node', [CLI_PATH, ...args], {
         cwd: options.cwd || process.cwd(),
         encoding: 'utf-8',
         stdio: 'pipe',

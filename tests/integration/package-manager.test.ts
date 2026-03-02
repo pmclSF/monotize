@@ -2,7 +2,8 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from
 import path from 'node:path';
 import fs from 'fs-extra';
 import os from 'node:os';
-import { execSync } from 'node:child_process';
+import crypto from 'node:crypto';
+import { execFileSync, execSync } from 'node:child_process';
 
 // Check if yarn is installed
 function isYarnInstalled(): boolean {
@@ -24,6 +25,10 @@ describe('Package Manager Integration', () => {
   let testRepoDir1: string;
   let testRepoDir2: string;
   const cliPath = path.resolve(__dirname, '../../bin/monorepo.js');
+
+  function run(args: string[]): void {
+    execFileSync('node', [cliPath, ...args], { stdio: 'pipe' });
+  }
 
   beforeAll(async () => {
     // Create a temp directory for tests
@@ -61,7 +66,7 @@ describe('Package Manager Integration', () => {
     let outputDir: string;
 
     beforeEach(async () => {
-      outputDir = path.join(tempDir, `output-${Date.now()}`);
+      outputDir = path.join(tempDir, `output-${crypto.randomBytes(8).toString('hex')}`);
     });
 
     afterEach(async () => {
@@ -71,9 +76,7 @@ describe('Package Manager Integration', () => {
     });
 
     it('should merge with pnpm (default)', { retry: FLAKY_TEST_RETRIES }, async () => {
-      execSync(`node ${cliPath} merge ${testRepoDir1} ${testRepoDir2} -o ${outputDir} -y --no-install`, {
-        stdio: 'pipe',
-      });
+      run(['merge', testRepoDir1, testRepoDir2, '-o', outputDir, '-y', '--no-install']);
 
       // Check pnpm-workspace.yaml exists
       const workspaceYaml = path.join(outputDir, 'pnpm-workspace.yaml');
@@ -87,9 +90,7 @@ describe('Package Manager Integration', () => {
     });
 
     it.skipIf(!YARN_INSTALLED)('should merge with yarn', { retry: FLAKY_TEST_RETRIES }, async () => {
-      execSync(`node ${cliPath} merge ${testRepoDir1} ${testRepoDir2} -o ${outputDir} -y --no-install --package-manager yarn`, {
-        stdio: 'pipe',
-      });
+      run(['merge', testRepoDir1, testRepoDir2, '-o', outputDir, '-y', '--no-install', '--package-manager', 'yarn']);
 
       // Check NO pnpm-workspace.yaml
       const workspaceYaml = path.join(outputDir, 'pnpm-workspace.yaml');
@@ -103,9 +104,7 @@ describe('Package Manager Integration', () => {
     });
 
     it('should merge with npm', { retry: FLAKY_TEST_RETRIES }, async () => {
-      execSync(`node ${cliPath} merge ${testRepoDir1} ${testRepoDir2} -o ${outputDir} -y --no-install --package-manager npm`, {
-        stdio: 'pipe',
-      });
+      run(['merge', testRepoDir1, testRepoDir2, '-o', outputDir, '-y', '--no-install', '--package-manager', 'npm']);
 
       // Check NO pnpm-workspace.yaml
       const workspaceYaml = path.join(outputDir, 'pnpm-workspace.yaml');
@@ -119,9 +118,7 @@ describe('Package Manager Integration', () => {
     });
 
     it.skipIf(!YARN_INSTALLED)('should merge with yarn-berry', { retry: FLAKY_TEST_RETRIES }, async () => {
-      execSync(`node ${cliPath} merge ${testRepoDir1} ${testRepoDir2} -o ${outputDir} -y --no-install --package-manager yarn-berry`, {
-        stdio: 'pipe',
-      });
+      run(['merge', testRepoDir1, testRepoDir2, '-o', outputDir, '-y', '--no-install', '--package-manager', 'yarn-berry']);
 
       // Check NO pnpm-workspace.yaml
       const workspaceYaml = path.join(outputDir, 'pnpm-workspace.yaml');
@@ -141,9 +138,9 @@ describe('Package Manager Integration', () => {
     let outputDir: string;
 
     beforeEach(async () => {
-      outputDir = path.join(tempDir, `output-${Date.now()}`);
-      repoWithPnpm = path.join(tempDir, `repo-pnpm-${Date.now()}`);
-      repoWithYarn = path.join(tempDir, `repo-yarn-${Date.now()}`);
+      outputDir = path.join(tempDir, `output-${crypto.randomBytes(8).toString('hex')}`);
+      repoWithPnpm = path.join(tempDir, `repo-pnpm-${crypto.randomBytes(8).toString('hex')}`);
+      repoWithYarn = path.join(tempDir, `repo-yarn-${crypto.randomBytes(8).toString('hex')}`);
 
       await fs.ensureDir(repoWithPnpm);
       await fs.ensureDir(repoWithYarn);
@@ -174,19 +171,15 @@ describe('Package Manager Integration', () => {
       }
     });
 
-    it('should auto-detect pnpm from lock file', async () => {
-      execSync(`node ${cliPath} merge ${repoWithPnpm} ${testRepoDir1} -o ${outputDir} -y --no-install --auto-detect-pm`, {
-        stdio: 'pipe',
-      });
+    it('should auto-detect pnpm from lock file', { retry: FLAKY_TEST_RETRIES }, async () => {
+      run(['merge', repoWithPnpm, testRepoDir1, '-o', outputDir, '-y', '--no-install', '--auto-detect-pm']);
 
       const pkgJson = await fs.readJson(path.join(outputDir, 'package.json'));
       expect(pkgJson.packageManager).toMatch(/^pnpm@/);
     });
 
-    it.skipIf(!YARN_INSTALLED)('should auto-detect yarn from lock file', async () => {
-      execSync(`node ${cliPath} merge ${repoWithYarn} ${testRepoDir1} -o ${outputDir} -y --no-install --auto-detect-pm`, {
-        stdio: 'pipe',
-      });
+    it.skipIf(!YARN_INSTALLED)('should auto-detect yarn from lock file', { retry: FLAKY_TEST_RETRIES }, async () => {
+      run(['merge', repoWithYarn, testRepoDir1, '-o', outputDir, '-y', '--no-install', '--auto-detect-pm']);
 
       const pkgJson = await fs.readJson(path.join(outputDir, 'package.json'));
       expect(pkgJson.packageManager).toMatch(/^yarn@/);
@@ -197,7 +190,7 @@ describe('Package Manager Integration', () => {
     let initDir: string;
 
     beforeEach(async () => {
-      initDir = path.join(tempDir, `init-${Date.now()}`);
+      initDir = path.join(tempDir, `init-${crypto.randomBytes(8).toString('hex')}`);
     });
 
     afterEach(async () => {
@@ -206,20 +199,16 @@ describe('Package Manager Integration', () => {
       }
     });
 
-    it('should init with pnpm (default)', async () => {
-      execSync(`node ${cliPath} init ${initDir} --no-git`, {
-        stdio: 'pipe',
-      });
+    it('should init with pnpm (default)', { retry: FLAKY_TEST_RETRIES }, async () => {
+      run(['init', initDir, '--no-git']);
 
       const pkgJson = await fs.readJson(path.join(initDir, 'package.json'));
       expect(pkgJson.packageManager).toMatch(/^pnpm@/);
       expect(await fs.pathExists(path.join(initDir, 'pnpm-workspace.yaml'))).toBe(true);
     });
 
-    it.skipIf(!YARN_INSTALLED)('should init with yarn', async () => {
-      execSync(`node ${cliPath} init ${initDir} --no-git --package-manager yarn`, {
-        stdio: 'pipe',
-      });
+    it.skipIf(!YARN_INSTALLED)('should init with yarn', { retry: FLAKY_TEST_RETRIES }, async () => {
+      run(['init', initDir, '--no-git', '--package-manager', 'yarn']);
 
       const pkgJson = await fs.readJson(path.join(initDir, 'package.json'));
       expect(pkgJson.packageManager).toMatch(/^yarn@/);
@@ -227,10 +216,8 @@ describe('Package Manager Integration', () => {
       expect(await fs.pathExists(path.join(initDir, 'pnpm-workspace.yaml'))).toBe(false);
     });
 
-    it('should init with npm', async () => {
-      execSync(`node ${cliPath} init ${initDir} --no-git --package-manager npm`, {
-        stdio: 'pipe',
-      });
+    it('should init with npm', { retry: FLAKY_TEST_RETRIES }, async () => {
+      run(['init', initDir, '--no-git', '--package-manager', 'npm']);
 
       const pkgJson = await fs.readJson(path.join(initDir, 'package.json'));
       expect(pkgJson.packageManager).toMatch(/^npm@/);

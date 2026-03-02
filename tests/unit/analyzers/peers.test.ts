@@ -46,13 +46,21 @@ describe('satisfiesRange', () => {
     expect(satisfiesRange('0.9.9', '>=1.0.0')).toBe(false);
   });
 
-  it('should return false for complex ranges', () => {
-    expect(satisfiesRange('1.0.0', '^1.0.0 || ^2.0.0')).toBe(false);
-    expect(satisfiesRange('1.5.0', '1.0.0 - 2.0.0')).toBe(false);
+  it('should handle complex ranges correctly', () => {
+    expect(satisfiesRange('1.0.0', '^1.0.0 || ^2.0.0')).toBe(true);
+    expect(satisfiesRange('2.5.0', '^1.0.0 || ^2.0.0')).toBe(true);
+    expect(satisfiesRange('3.0.0', '^1.0.0 || ^2.0.0')).toBe(false);
+    expect(satisfiesRange('1.5.0', '1.0.0 - 2.0.0')).toBe(true);
+    expect(satisfiesRange('0.9.0', '1.0.0 - 2.0.0')).toBe(false);
   });
 
   it('should handle non-parseable versions', () => {
     expect(satisfiesRange('not-a-version', '^1.0.0')).toBe(false);
+  });
+
+  it('should return false for invalid range syntax', () => {
+    // Triggers the catch block when semver.satisfies throws
+    expect(satisfiesRange('1.0.0', 'completely invalid range !@#$%')).toBe(false);
   });
 });
 
@@ -102,11 +110,11 @@ describe('analyzePeerDependencies', () => {
     const result = analyzePeerDependencies(packages, lockResolutions);
     expect(result).toHaveLength(1);
     expect(result[0].name).toBe('react');
-    expect(result[0].confidence).toBe('medium');
+    expect(result[0].confidence).toBe('high');
     expect(result[0].conflictSource).toBe('peer-constraint');
   });
 
-  it('should use low confidence for complex ranges', () => {
+  it('should correctly evaluate complex ranges and emit conflict when unsatisfied', () => {
     const packages = [
       createMockPackage('plugin', {}, {}, { react: '^16.0.0 || ^17.0.0' }),
       createMockPackage('app', { react: '^18.2.0' }),
@@ -121,8 +129,28 @@ describe('analyzePeerDependencies', () => {
     ];
 
     const result = analyzePeerDependencies(packages, lockResolutions);
+    // 18.2.0 does NOT satisfy ^16.0.0 || ^17.0.0, so a conflict is emitted
     expect(result).toHaveLength(1);
-    expect(result[0].confidence).toBe('low');
+    expect(result[0].confidence).toBe('high');
+  });
+
+  it('should not emit conflict when complex range IS satisfied', () => {
+    const packages = [
+      createMockPackage('plugin', {}, {}, { react: '^17.0.0 || ^18.0.0' }),
+      createMockPackage('app', { react: '^18.2.0' }),
+    ];
+
+    const lockResolutions: LockfileResolution[] = [
+      {
+        packageManager: 'npm',
+        repoName: 'app',
+        resolvedVersions: { react: '18.2.0' },
+      },
+    ];
+
+    const result = analyzePeerDependencies(packages, lockResolutions);
+    // 18.2.0 DOES satisfy ^17.0.0 || ^18.0.0
+    expect(result).toHaveLength(0);
   });
 
   it('should skip peer deps with no available version', () => {
@@ -132,6 +160,26 @@ describe('analyzePeerDependencies', () => {
 
     const result = analyzePeerDependencies(packages, []);
     expect(result).toEqual([]);
+  });
+
+  it('should use lockfile resolution from the same repo as peer dep', () => {
+    // The peer dep is in 'my-plugin', and the lockfile resolution is also for 'my-plugin'
+    const packages = [
+      createMockPackage('my-plugin', {}, {}, { react: '^18.0.0' }),
+      createMockPackage('my-app', { react: '^18.2.0' }),
+    ];
+
+    const lockResolutions: LockfileResolution[] = [
+      {
+        packageManager: 'npm',
+        repoName: 'my-plugin',
+        resolvedVersions: { react: '18.2.0' },
+      },
+    ];
+
+    const result = analyzePeerDependencies(packages, lockResolutions);
+    // 18.2.0 satisfies ^18.0.0, so no conflict
+    expect(result).toHaveLength(0);
   });
 
   it('should use declared versions when no lockfile resolution exists', () => {

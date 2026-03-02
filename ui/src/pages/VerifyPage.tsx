@@ -27,6 +27,7 @@ export function VerifyPage({ ws, planPath: initialPlanPath, outputDir, onComplet
   const [planPath, setPlanPath] = useState(initialPlanPath || '');
   const [dirPath, setDirPath] = useState(outputDir || '');
   const [tier, setTier] = useState('static');
+  const [error, setError] = useState<string | null>(null);
   const op = useOperation(ws);
   const [loading, setLoading] = useState(false);
 
@@ -34,13 +35,14 @@ export function VerifyPage({ ws, planPath: initialPlanPath, outputDir, onComplet
 
   const handleVerify = async () => {
     if (!inputValue) return;
+    setError(null);
     setLoading(true);
     try {
       const body = inputMode === 'plan' ? { plan: planPath, tier } : { dir: dirPath, tier };
       const { opId } = await postVerify(body);
       op.start(opId);
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Request failed');
+      setError(err instanceof Error ? err.message : 'Request failed');
     } finally {
       setLoading(false);
     }
@@ -101,7 +103,8 @@ export function VerifyPage({ ws, planPath: initialPlanPath, outputDir, onComplet
 
       <LogStream logs={op.logs} />
 
-      {op.error && <div className="error-message">{op.error}</div>}
+      {error && <div className="error-message" role="alert">{error}</div>}
+      {op.error && <div className="error-message" role="alert">{op.error}</div>}
 
       {result && (
         <div>

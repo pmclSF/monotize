@@ -2,6 +2,8 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import type { WorkspaceTool, PackageManagerConfig } from '../types/index.js';
 import { createLogger } from '../utils/logger.js';
+import { CliExitError } from '../utils/errors.js';
+import { parseWorkspaceTool } from '../utils/cli-options.js';
 import { ensureDir, writeFile, writeJson, pathExists } from '../utils/fs.js';
 import {
   generateWorkspaceToolConfig,
@@ -12,7 +14,7 @@ import {
   generateWorkspaceFiles,
   getWorkspacesConfig,
   getPackageManagerField,
-  parsePackageManagerType,
+  tryParsePackageManagerType,
   validatePackageManager,
   getPackageManagerDisplayName,
   getGitignoreEntries,
@@ -250,19 +252,32 @@ export async function initCommand(
   const targetDir = directory ? path.resolve(directory) : process.cwd();
   const name = path.basename(targetDir);
   const packagesDir = options.packagesDir || 'packages';
-  const workspaceTool = (options.workspaceTool as WorkspaceTool) || 'none';
+  const workspaceTool = parseWorkspaceTool(options.workspaceTool || 'none');
   const initGit = options.git !== false; // Default to true
 
   const logger = createLogger(options.verbose);
 
+  if (!workspaceTool) {
+    logger.error(
+      `Invalid workspace tool: ${options.workspaceTool}. Valid options: turbo, nx, none`
+    );
+    throw new CliExitError();
+  }
+
   // Determine package manager
-  const pmType = parsePackageManagerType(options.packageManager || 'pnpm');
+  const pmType = tryParsePackageManagerType(options.packageManager || 'pnpm');
+  if (!pmType) {
+    logger.error(
+      `Invalid package manager: ${options.packageManager}. Valid options: pnpm, yarn, yarn-berry, npm`
+    );
+    throw new CliExitError();
+  }
 
   // Validate package manager is installed
   const pmValidation = validatePackageManager(pmType);
   if (!pmValidation.valid) {
     logger.error(pmValidation.error!);
-    process.exit(1);
+    throw new CliExitError();
   }
 
   const pmConfig = createPackageManagerConfig(pmType);
@@ -274,7 +289,7 @@ export async function initCommand(
     if (await pathExists(packageJsonPath)) {
       logger.error(`Directory already contains a package.json: ${targetDir}`);
       logger.info('Use "monorepo merge" to combine existing repositories.');
-      process.exit(1);
+      throw new CliExitError();
     }
 
     logger.info(`Initializing monorepo in ${targetDir}...`);
@@ -352,6 +367,6 @@ export async function initCommand(
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     logger.error(`Init failed: ${message}`);
-    process.exit(1);
+    throw new CliExitError();
   }
 }

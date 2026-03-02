@@ -158,8 +158,8 @@ export async function runAnalyze(
   } finally {
     try {
       await removeDir(tempDir);
-    } catch {
-      // Ignore cleanup errors
+    } catch (err) {
+      logger.debug?.('Failed to clean up temp dir: ' + (err instanceof Error ? err.message : String(err)));
     }
   }
 }
@@ -558,8 +558,8 @@ export async function runApply(
       if (await pathExists(stagingDir)) {
         await removeDir(stagingDir);
       }
-    } catch {
-      // Ignore cleanup errors
+    } catch (err) {
+      logger.debug?.('Failed to clean up staging dir: ' + (err instanceof Error ? err.message : String(err)));
     }
     throw error;
   }
@@ -713,8 +713,8 @@ export async function runPrepare(
   } finally {
     try {
       await removeDir(tempDir);
-    } catch {
-      // Ignore cleanup errors
+    } catch (err) {
+      logger.debug?.('Failed to clean up temp dir: ' + (err instanceof Error ? err.message : String(err)));
     }
   }
 }

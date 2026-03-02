@@ -71,7 +71,7 @@ export async function detectFileCollisions(
         sources.push(repo.name);
         fileMap.set(file, sources);
       }
-    } catch {
+    } catch (_err) {
       // Skip repos that can't be read
     }
   }
@@ -110,7 +110,8 @@ export async function filesAreIdentical(file1: string, file2: string): Promise<b
   try {
     const [content1, content2] = await Promise.all([readFile(file1), readFile(file2)]);
     return content1 === content2;
-  } catch {
+  } catch (_err) {
+    // Could not read one or both files for comparison
     return false;
   }
 }

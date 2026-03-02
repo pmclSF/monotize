@@ -1,10 +1,19 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import path from 'node:path';
 import fs from 'fs-extra';
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 
+const binPath = path.join(process.cwd(), 'bin', 'monorepo.js');
 const fixturesPath = path.join(process.cwd(), 'tests/fixtures');
 const outputDir = path.join(process.cwd(), 'tests/.test-output');
+
+function runMerge(args: string[], opts: Record<string, unknown> = {}): string {
+  return execFileSync('node', [binPath, 'merge', ...args], {
+    encoding: 'utf-8',
+    stdio: 'pipe',
+    ...opts,
+  });
+}
 
 describe('merge command integration', () => {
   beforeEach(async () => {
@@ -16,10 +25,11 @@ describe('merge command integration', () => {
   });
 
   it('should create monorepo structure with --dry-run', () => {
-    const result = execSync(
-      `node ./bin/monorepo.js merge ${fixturesPath}/repo-a ${fixturesPath}/repo-b --dry-run -o ${outputDir}`,
-      { encoding: 'utf-8' }
-    );
+    const result = runMerge([
+      path.join(fixturesPath, 'repo-a'),
+      path.join(fixturesPath, 'repo-b'),
+      '--dry-run', '-o', outputDir,
+    ]);
 
     // Dry run should show the plan
     expect(result).toContain('Dry Run Report');
@@ -32,10 +42,11 @@ describe('merge command integration', () => {
   });
 
   it('should merge two repos with -y flag', async () => {
-    execSync(
-      `node ./bin/monorepo.js merge ${fixturesPath}/repo-a ${fixturesPath}/repo-b -o ${outputDir} -y --no-install`,
-      { encoding: 'utf-8', stdio: 'pipe' }
-    );
+    runMerge([
+      path.join(fixturesPath, 'repo-a'),
+      path.join(fixturesPath, 'repo-b'),
+      '-o', outputDir, '-y', '--no-install',
+    ]);
 
     // Check output structure
     expect(fs.existsSync(outputDir)).toBe(true);
@@ -67,10 +78,12 @@ describe('merge command integration', () => {
   });
 
   it('should merge three repos', async () => {
-    execSync(
-      `node ./bin/monorepo.js merge ${fixturesPath}/repo-a ${fixturesPath}/repo-b ${fixturesPath}/repo-c -o ${outputDir} -y --no-install`,
-      { encoding: 'utf-8', stdio: 'pipe' }
-    );
+    runMerge([
+      path.join(fixturesPath, 'repo-a'),
+      path.join(fixturesPath, 'repo-b'),
+      path.join(fixturesPath, 'repo-c'),
+      '-o', outputDir, '-y', '--no-install',
+    ]);
 
     expect(fs.existsSync(path.join(outputDir, 'packages/repo-a'))).toBe(true);
     expect(fs.existsSync(path.join(outputDir, 'packages/repo-b'))).toBe(true);
@@ -84,10 +97,11 @@ describe('merge command integration', () => {
   });
 
   it('should use custom packages directory', async () => {
-    execSync(
-      `node ./bin/monorepo.js merge ${fixturesPath}/repo-a ${fixturesPath}/repo-b -o ${outputDir} -p apps -y --no-install`,
-      { encoding: 'utf-8', stdio: 'pipe' }
-    );
+    runMerge([
+      path.join(fixturesPath, 'repo-a'),
+      path.join(fixturesPath, 'repo-b'),
+      '-o', outputDir, '-p', 'apps', '-y', '--no-install',
+    ]);
 
     expect(fs.existsSync(path.join(outputDir, 'apps/repo-a'))).toBe(true);
     expect(fs.existsSync(path.join(outputDir, 'apps/repo-b'))).toBe(true);
@@ -100,10 +114,11 @@ describe('merge command integration', () => {
   });
 
   it('should use highest conflict strategy', async () => {
-    execSync(
-      `node ./bin/monorepo.js merge ${fixturesPath}/repo-a ${fixturesPath}/repo-b -o ${outputDir} -y --conflict-strategy highest --no-install`,
-      { encoding: 'utf-8', stdio: 'pipe' }
-    );
+    runMerge([
+      path.join(fixturesPath, 'repo-a'),
+      path.join(fixturesPath, 'repo-b'),
+      '-o', outputDir, '-y', '--conflict-strategy', 'highest', '--no-install',
+    ]);
 
     const rootPkg = await fs.readJson(path.join(outputDir, 'package.json'));
 
@@ -114,10 +129,11 @@ describe('merge command integration', () => {
   });
 
   it('should merge .gitignore files', async () => {
-    execSync(
-      `node ./bin/monorepo.js merge ${fixturesPath}/repo-a ${fixturesPath}/repo-b -o ${outputDir} -y --no-install`,
-      { encoding: 'utf-8', stdio: 'pipe' }
-    );
+    runMerge([
+      path.join(fixturesPath, 'repo-a'),
+      path.join(fixturesPath, 'repo-b'),
+      '-o', outputDir, '-y', '--no-install',
+    ]);
 
     const gitignore = await fs.readFile(
       path.join(outputDir, '.gitignore'),
@@ -130,7 +146,7 @@ describe('merge command integration', () => {
   });
 
   it('should show help for merge command', () => {
-    const result = execSync('node ./bin/monorepo.js merge --help', {
+    const result = execFileSync('node', [binPath, 'merge', '--help'], {
       encoding: 'utf-8',
     });
 

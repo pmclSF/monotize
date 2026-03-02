@@ -1,7 +1,8 @@
-import { exec } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createLogger } from '../utils/logger.js';
+import { CliExitError } from '../utils/errors.js';
 
 interface CLIUiOptions {
   port: string;
@@ -15,7 +16,7 @@ export async function uiCommand(options: CLIUiOptions): Promise<void> {
 
   if (isNaN(port) || port < 0 || port > 65535) {
     logger.error(`Invalid port: ${options.port}`);
-    process.exit(1);
+    throw new CliExitError();
   }
 
   // Dynamic import to avoid loading express/ws when running other CLI commands
@@ -27,33 +28,54 @@ export async function uiCommand(options: CLIUiOptions): Promise<void> {
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
   const uiDistDir = path.resolve(__dirname, '../ui/dist');
 
-  const server = createServer({ port, staticDir: uiDistDir });
+  const { server, token } = createServer({ port, staticDir: uiDistDir });
+  await new Promise<void>((resolve, reject) => {
+    const onListening = () => {
+      const addr = server.address();
+      const actualPort = typeof addr === 'object' && addr ? addr.port : port;
+      const url = `http://localhost:${actualPort}`;
 
-  server.on('listening', () => {
-    const addr = server.address();
-    const actualPort = typeof addr === 'object' && addr ? addr.port : port;
-    const url = `http://localhost:${actualPort}`;
+      logger.success(`Server running at ${url}`);
+      logger.info(`Auth token: ${token}`);
+      logger.info('Pass this token as Authorization: Bearer <token> for API requests');
+      logger.info('Press Ctrl+C to stop');
 
-    logger.success(`Server running at ${url}`);
-    logger.info('Press Ctrl+C to stop');
-
-    if (options.open) {
-      const cmd =
-        process.platform === 'darwin'
-          ? 'open'
+      if (options.open) {
+        const browserUrl = `${url}?token=${token}`;
+        const { command, args } = process.platform === 'darwin'
+          ? { command: 'open', args: [browserUrl] }
           : process.platform === 'win32'
-            ? 'start'
-            : 'xdg-open';
-      exec(`${cmd} ${url}`);
-    }
-  });
+            ? { command: 'cmd', args: ['/c', 'start', '', browserUrl] }
+            : { command: 'xdg-open', args: [browserUrl] };
+        execFile(command, args, (err) => {
+          if (err) logger.debug(`Failed to open browser: ${err.message}`);
+        });
+      }
+    };
 
-  server.on('error', (err: NodeJS.ErrnoException) => {
-    if (err.code === 'EADDRINUSE') {
-      logger.error(`Port ${port} is already in use. Try a different port with -p.`);
-    } else {
-      logger.error(`Server error: ${err.message}`);
-    }
-    process.exit(1);
+    const onError = (err: NodeJS.ErrnoException) => {
+      cleanup();
+      if (err.code === 'EADDRINUSE') {
+        logger.error(`Port ${port} is already in use. Try a different port with -p.`);
+      } else {
+        logger.error(`Server error: ${err.message}`);
+      }
+      reject(new CliExitError());
+    };
+
+    const onClose = () => {
+      cleanup();
+      resolve();
+    };
+
+    const cleanup = () => {
+      server.off('listening', onListening);
+      server.off('error', onError);
+      server.off('close', onClose);
+    };
+
+    server.on('listening', onListening);
+    server.on('error', onError);
+    server.on('close', onClose);
   });
 }

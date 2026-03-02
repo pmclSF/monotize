@@ -3,15 +3,13 @@ import chalk from 'chalk';
 import type {
   ConflictStrategy,
   FileCollisionStrategy,
-  WorkspaceTool,
-  WorkflowMergeStrategy,
   PackageManagerType,
   ApplyPlan,
   PlanFile,
 } from '../types/index.js';
 import { createLogger } from '../utils/logger.js';
+import { CliExitError } from '../utils/errors.js';
 import {
-  createTempDir,
   removeDir,
   ensureDir,
   writeJson,
@@ -23,6 +21,11 @@ import {
   promptConflictStrategy,
   promptFileCollisionStrategy,
 } from '../utils/prompts.js';
+import {
+  parseConflictStrategy,
+  parseWorkspaceTool,
+  parseWorkflowStrategy,
+} from '../utils/cli-options.js';
 import { analyzeDependencies } from '../analyzers/dependencies.js';
 import { detectFileCollisions } from '../analyzers/files.js';
 import { cloneOrCopyRepos } from '../strategies/copy.js';
@@ -51,7 +54,7 @@ import {
   getWorkspacesConfig,
   getGitignoreEntries,
   getPackageManagerField,
-  parsePackageManagerType,
+  tryParsePackageManagerType,
   validatePackageManager,
   getPackageManagerDisplayName,
 } from '../strategies/package-manager.js';
@@ -85,10 +88,32 @@ export async function planCommand(repos: string[], options: CLIPlanOptions): Pro
 
   const outputDir = path.resolve(options.output);
   const packagesDir = options.packagesDir;
-  const workspaceTool = (options.workspaceTool as WorkspaceTool) || 'none';
-  const workflowStrategy = (options.workflowStrategy as WorkflowMergeStrategy) || 'combine';
+  const workspaceTool = parseWorkspaceTool(options.workspaceTool || 'none');
+  const workflowStrategy = parseWorkflowStrategy(options.workflowStrategy || 'combine');
+  const parsedConflictStrategy = parseConflictStrategy(options.conflictStrategy);
   const noHoist = options.hoist === false;
   const yes = options.yes ?? false;
+
+  if (!workspaceTool) {
+    logger.error(
+      `Invalid workspace tool: ${options.workspaceTool}. Valid options: turbo, nx, none`
+    );
+    throw new CliExitError();
+  }
+
+  if (!workflowStrategy) {
+    logger.error(
+      `Invalid workflow strategy: ${options.workflowStrategy}. Valid options: combine, keep-first, keep-last, skip`
+    );
+    throw new CliExitError();
+  }
+
+  if (!parsedConflictStrategy) {
+    logger.error(
+      `Invalid conflict strategy: ${options.conflictStrategy}. Valid options: highest, lowest, prompt`
+    );
+    throw new CliExitError();
+  }
 
   // Determine plan file path
   const planFilePath = options.planFile
@@ -113,12 +138,19 @@ export async function planCommand(repos: string[], options: CLIPlanOptions): Pro
   process.on('SIGINT', async () => {
     logger.warn('\nInterrupted. Cleaning up...');
     await cleanup();
-    process.exit(1);
+    process.exit(130); // 128 + SIGINT(2)
   });
 
   try {
     // Step 1: Determine package manager
-    let pmType: PackageManagerType = parsePackageManagerType(options.packageManager || 'pnpm');
+    const parsedPm = tryParsePackageManagerType(options.packageManager || 'pnpm');
+    if (!parsedPm) {
+      logger.error(
+        `Invalid package manager: ${options.packageManager}. Valid options: pnpm, yarn, yarn-berry, npm`
+      );
+      throw new CliExitError();
+    }
+    let pmType: PackageManagerType = parsedPm;
 
     // Step 2: Validate repo sources
     logger.info('Validating repository sources...');
@@ -128,7 +160,7 @@ export async function planCommand(repos: string[], options: CLIPlanOptions): Pro
       for (const error of validation.errors) {
         logger.error(error);
       }
-      process.exit(1);
+      throw new CliExitError();
     }
 
     logger.success(`Found ${validation.sources.length} repositories to merge`);
@@ -156,7 +188,7 @@ export async function planCommand(repos: string[], options: CLIPlanOptions): Pro
     const pmValidation = validatePackageManager(pmType);
     if (!pmValidation.valid) {
       logger.error(pmValidation.error!);
-      process.exit(1);
+      throw new CliExitError();
     }
 
     const pmConfig = createPackageManagerConfig(pmType);
@@ -187,7 +219,7 @@ export async function planCommand(repos: string[], options: CLIPlanOptions): Pro
     }
 
     // Step 8: Resolve dependency conflicts
-    let conflictStrategy = options.conflictStrategy as ConflictStrategy;
+    let conflictStrategy: ConflictStrategy = parsedConflictStrategy;
 
     if (depAnalysis.conflicts.length > 0 && conflictStrategy === 'prompt' && !yes) {
       conflictStrategy = await promptConflictStrategy();
@@ -427,6 +459,6 @@ resolution-mode=lowest
     }
 
     await cleanup();
-    process.exit(1);
+    throw new CliExitError();
   }
 }

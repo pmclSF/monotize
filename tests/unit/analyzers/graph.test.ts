@@ -72,6 +72,22 @@ describe('detectCircularDependencies', () => {
     const cycles = detectCircularDependencies([]);
     expect(cycles).toEqual([]);
   });
+
+  it('should deduplicate equivalent cycles via canonicalization', () => {
+    // Cycle: Z→A→M→Z - canonicalization ensures same cycle detected only once
+    const crossDeps: CrossDependency[] = [
+      { fromPackage: 'Z', toPackage: 'A', currentVersion: '^1.0.0', dependencyType: 'dependencies' },
+      { fromPackage: 'A', toPackage: 'M', currentVersion: '^1.0.0', dependencyType: 'dependencies' },
+      { fromPackage: 'M', toPackage: 'Z', currentVersion: '^1.0.0', dependencyType: 'dependencies' },
+    ];
+
+    const cycles = detectCircularDependencies(crossDeps);
+    expect(cycles).toHaveLength(1);
+    // All nodes should be present in the cycle
+    expect(cycles[0].cycle).toContain('Z');
+    expect(cycles[0].cycle).toContain('A');
+    expect(cycles[0].cycle).toContain('M');
+  });
 });
 
 describe('computeHotspots', () => {

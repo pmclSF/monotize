@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import fs from 'fs-extra';
 import path from 'node:path';
 import os from 'node:os';
@@ -7,6 +7,12 @@ import crypto from 'node:crypto';
 
 // Retry count for flaky tests (temp directory race conditions)
 const FLAKY_TEST_RETRIES = 2;
+
+const cliPath = path.join(process.cwd(), 'bin', 'monorepo.js');
+
+function runMerge(args: string[]): void {
+  execFileSync('node', [cliPath, 'merge', ...args], { stdio: 'pipe' });
+}
 
 describe('Turbo/Nx Generation Integration', () => {
   let tempDir: string;
@@ -56,10 +62,7 @@ describe('Turbo/Nx Generation Integration', () => {
     const repo1 = await createTestRepo('pkg-a');
     const repo2 = await createTestRepo('pkg-b', { lint: 'eslint .' });
 
-    execSync(
-      `node ${path.join(process.cwd(), 'bin', 'monorepo.js')} merge ${repo1} ${repo2} -o ${outputDir} --workspace-tool turbo -y --no-install`,
-      { stdio: 'pipe' }
-    );
+    runMerge([repo1, repo2, '-o', outputDir, '--workspace-tool', 'turbo', '-y', '--no-install']);
 
     // Verify turbo.json exists and has correct structure
     const turboPath = path.join(outputDir, 'turbo.json');
@@ -77,10 +80,7 @@ describe('Turbo/Nx Generation Integration', () => {
     const repo1 = await createTestRepo('pkg-a');
     const repo2 = await createTestRepo('pkg-b');
 
-    execSync(
-      `node ${path.join(process.cwd(), 'bin', 'monorepo.js')} merge ${repo1} ${repo2} -o ${outputDir} --workspace-tool nx -y --no-install`,
-      { stdio: 'pipe' }
-    );
+    runMerge([repo1, repo2, '-o', outputDir, '--workspace-tool', 'nx', '-y', '--no-install']);
 
     // Verify nx.json exists and has correct structure
     const nxPath = path.join(outputDir, 'nx.json');
@@ -96,10 +96,7 @@ describe('Turbo/Nx Generation Integration', () => {
   it('should add turbo as devDependency in root package.json', { retry: FLAKY_TEST_RETRIES }, async () => {
     const repo1 = await createTestRepo('pkg-a');
 
-    execSync(
-      `node ${path.join(process.cwd(), 'bin', 'monorepo.js')} merge ${repo1} -o ${outputDir} --workspace-tool turbo -y --no-install`,
-      { stdio: 'pipe' }
-    );
+    runMerge([repo1, '-o', outputDir, '--workspace-tool', 'turbo', '-y', '--no-install']);
 
     const rootPkg = await fs.readJson(path.join(outputDir, 'package.json'));
     expect(rootPkg.devDependencies?.turbo).toBeDefined();
@@ -108,10 +105,7 @@ describe('Turbo/Nx Generation Integration', () => {
   it('should add nx as devDependency in root package.json', { retry: FLAKY_TEST_RETRIES }, async () => {
     const repo1 = await createTestRepo('pkg-a');
 
-    execSync(
-      `node ${path.join(process.cwd(), 'bin', 'monorepo.js')} merge ${repo1} -o ${outputDir} --workspace-tool nx -y --no-install`,
-      { stdio: 'pipe' }
-    );
+    runMerge([repo1, '-o', outputDir, '--workspace-tool', 'nx', '-y', '--no-install']);
 
     const rootPkg = await fs.readJson(path.join(outputDir, 'package.json'));
     expect(rootPkg.devDependencies?.nx).toBeDefined();
@@ -120,10 +114,7 @@ describe('Turbo/Nx Generation Integration', () => {
   it('should update root scripts to use turbo', { retry: FLAKY_TEST_RETRIES }, async () => {
     const repo1 = await createTestRepo('pkg-a');
 
-    execSync(
-      `node ${path.join(process.cwd(), 'bin', 'monorepo.js')} merge ${repo1} -o ${outputDir} --workspace-tool turbo -y --no-install`,
-      { stdio: 'pipe' }
-    );
+    runMerge([repo1, '-o', outputDir, '--workspace-tool', 'turbo', '-y', '--no-install']);
 
     const rootPkg = await fs.readJson(path.join(outputDir, 'package.json'));
     expect(rootPkg.scripts?.build).toContain('turbo');
@@ -133,10 +124,7 @@ describe('Turbo/Nx Generation Integration', () => {
   it('should update root scripts to use nx', { retry: FLAKY_TEST_RETRIES }, async () => {
     const repo1 = await createTestRepo('pkg-a');
 
-    execSync(
-      `node ${path.join(process.cwd(), 'bin', 'monorepo.js')} merge ${repo1} -o ${outputDir} --workspace-tool nx -y --no-install`,
-      { stdio: 'pipe' }
-    );
+    runMerge([repo1, '-o', outputDir, '--workspace-tool', 'nx', '-y', '--no-install']);
 
     const rootPkg = await fs.readJson(path.join(outputDir, 'package.json'));
     expect(rootPkg.scripts?.build).toContain('nx');
@@ -146,10 +134,7 @@ describe('Turbo/Nx Generation Integration', () => {
   it('should not generate config when using --workspace-tool none', { retry: FLAKY_TEST_RETRIES }, async () => {
     const repo1 = await createTestRepo('pkg-a');
 
-    execSync(
-      `node ${path.join(process.cwd(), 'bin', 'monorepo.js')} merge ${repo1} -o ${outputDir} --workspace-tool none -y --no-install`,
-      { stdio: 'pipe' }
-    );
+    runMerge([repo1, '-o', outputDir, '--workspace-tool', 'none', '-y', '--no-install']);
 
     expect(await fs.pathExists(path.join(outputDir, 'turbo.json'))).toBe(false);
     expect(await fs.pathExists(path.join(outputDir, 'nx.json'))).toBe(false);
