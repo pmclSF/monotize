@@ -42,13 +42,12 @@ export async function uiCommand(options: CLIUiOptions): Promise<void> {
 
       if (options.open) {
         const browserUrl = `${url}?token=${token}`;
-        const cmd =
-          process.platform === 'darwin'
-            ? 'open'
-            : process.platform === 'win32'
-              ? 'start'
-              : 'xdg-open';
-        execFile(cmd, [browserUrl], (err) => {
+        const { command, args } = process.platform === 'darwin'
+          ? { command: 'open', args: [browserUrl] }
+          : process.platform === 'win32'
+            ? { command: 'cmd', args: ['/c', 'start', '', browserUrl] }
+            : { command: 'xdg-open', args: [browserUrl] };
+        execFile(command, args, (err) => {
           if (err) logger.debug(`Failed to open browser: ${err.message}`);
         });
       }
