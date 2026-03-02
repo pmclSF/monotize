@@ -69,7 +69,10 @@ export async function readWizardState(baseDir?: string): Promise<WizardState | n
 export async function writeWizardState(state: WizardState, baseDir?: string): Promise<void> {
   const statePath = getWizardStatePath(baseDir);
   await ensureDir(path.dirname(statePath));
-  const updated = { ...state, updatedAt: new Date().toISOString() };
+  const nowMs = Date.now();
+  const previousMs = Date.parse(state.updatedAt);
+  const nextMs = Number.isFinite(previousMs) ? Math.max(nowMs, previousMs + 1) : nowMs;
+  const updated = { ...state, updatedAt: new Date(nextMs).toISOString() };
   await writeJson(statePath, updated, { spaces: 2 });
 }
 
