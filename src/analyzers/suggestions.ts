@@ -2,6 +2,10 @@ import type { SuggestedDecision, DependencyConflict } from '../types/index.js';
 import { pathExists, readJson } from '../utils/fs.js';
 import path from 'node:path';
 
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 /**
  * Suggest package manager based on lockfile presence and packageManager fields.
  */
@@ -44,8 +48,10 @@ export async function suggestPackageManager(
             evidence.push(`${repo.name} has packageManager field: ${pmField}`);
           }
         }
-      } catch {
-        // Ignore malformed package.json
+      } catch (error) {
+        evidence.push(
+          `Could not parse package.json in ${repo.name}: ${getErrorMessage(error)}`
+        );
       }
     }
   }

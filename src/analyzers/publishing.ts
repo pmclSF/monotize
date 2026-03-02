@@ -2,6 +2,10 @@ import path from 'node:path';
 import type { AnalysisFinding, Logger } from '../types/index.js';
 import { pathExists, readJson } from '../utils/fs.js';
 
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 /**
  * Analyze publishing configuration across repositories.
  * Detects publishConfig, private:false, registry settings, etc.
@@ -83,8 +87,15 @@ export async function analyzePublishing(
           });
         }
       }
-    } catch {
-      // Skip malformed package.json
+    } catch (error) {
+      findings.push({
+        id: `publishing-malformed-package-json-${repo.name}`,
+        title: `Malformed package.json in ${repo.name}`,
+        severity: 'warn',
+        confidence: 'high',
+        evidence: [{ path: pkgPath, snippet: getErrorMessage(error) }],
+        suggestedAction: 'Fix package.json syntax before assessing publishing configuration.',
+      });
     }
   }
 

@@ -88,8 +88,11 @@ describe('analyzePublishing', () => {
       logger,
     );
 
-    // Should not throw
-    expect(Array.isArray(findings)).toBe(true);
+    const malformed = findings.find(
+      (f) => f.id === 'publishing-malformed-package-json-malformed-pub-repo'
+    );
+    expect(malformed).toBeDefined();
+    expect(malformed?.severity).toBe('warn');
   });
 
   it('should detect packages without main/exports', async () => {

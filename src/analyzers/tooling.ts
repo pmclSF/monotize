@@ -2,6 +2,10 @@ import path from 'node:path';
 import type { AnalysisFinding, Logger } from '../types/index.js';
 import { pathExists, readJson } from '../utils/fs.js';
 
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 const TOOL_CONFIGS: Array<{
   name: string;
   category: string;
@@ -71,8 +75,15 @@ export async function analyzeTooling(
             suggestedAction: 'Add a test script to package.json',
           });
         }
-      } catch {
-        // Skip
+      } catch (error) {
+        findings.push({
+          id: `tooling-malformed-package-json-${repo.name}`,
+          title: `Malformed package.json in ${repo.name}`,
+          severity: 'warn',
+          confidence: 'high',
+          evidence: [{ path: pkgPath, snippet: getErrorMessage(error) }],
+          suggestedAction: 'Fix package.json syntax to analyze tooling scripts safely.',
+        });
       }
     }
   }

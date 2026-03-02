@@ -95,8 +95,9 @@ describe('analyzeEnvironment', () => {
       logger,
     );
 
-    // Should not throw, just skip the malformed file
-    expect(Array.isArray(findings)).toBe(true);
+    const malformed = findings.find((f) => f.id === 'env-malformed-package-json-repo-malformed-env');
+    expect(malformed).toBeDefined();
+    expect(malformed?.severity).toBe('warn');
   });
 
   it('should detect mismatch between .node-version and .nvmrc across repos', async () => {

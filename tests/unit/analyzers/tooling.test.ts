@@ -61,4 +61,24 @@ describe('analyzeTooling', () => {
     const noTest = findings.find((f) => f.id === 'tooling-no-test-repo-no-test');
     expect(noTest).toBeDefined();
   });
+
+  it('should report malformed package.json instead of silently skipping', async () => {
+    const repoPath = await createTempFixture({
+      name: 'repo-malformed-tooling',
+      files: {
+        'package.json': '{ invalid json !!!',
+      },
+    });
+
+    const findings = await analyzeTooling(
+      [{ path: repoPath, name: 'repo-malformed-tooling' }],
+      logger,
+    );
+
+    const malformed = findings.find(
+      (f) => f.id === 'tooling-malformed-package-json-repo-malformed-tooling'
+    );
+    expect(malformed).toBeDefined();
+    expect(malformed?.severity).toBe('warn');
+  });
 });

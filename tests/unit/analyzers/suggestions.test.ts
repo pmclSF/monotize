@@ -167,6 +167,23 @@ describe('suggestPackageManager', () => {
     expect(result.alternatives).toContain('npm');
     expect(result.alternatives).not.toContain('pnpm');
   });
+
+  it('should include evidence when package.json is malformed', async () => {
+    const repoA = await createTempFixture({
+      name: 'repo-malformed-suggestions',
+      files: {
+        'package.json': '{ invalid json !!!',
+      },
+    });
+
+    const result = await suggestPackageManager([
+      { path: repoA, name: 'repo-malformed-suggestions' },
+    ]);
+
+    expect(
+      result.evidence.some((e) => e.includes('Could not parse package.json in repo-malformed-suggestions'))
+    ).toBe(true);
+  });
 });
 
 describe('suggestWorkspaceTool', () => {
