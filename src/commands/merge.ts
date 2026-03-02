@@ -3,7 +3,6 @@ import { execFileSync } from 'node:child_process';
 import chalk from 'chalk';
 import type {
   MergeOptions,
-  ConflictStrategy,
   FileCollisionStrategy,
   WorkspaceTool,
   WorkflowMergeStrategy,

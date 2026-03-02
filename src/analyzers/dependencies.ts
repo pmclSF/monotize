@@ -67,8 +67,8 @@ export function parseSemver(version: string): { major: number; minor: number; pa
 
   try {
     // 1) Exact semver
-    const exact = semver.valid(trimmed, { includePrerelease: true, loose: true });
-    const parsed = exact ? semver.parse(exact, { includePrerelease: true, loose: true }) : null;
+    const exact = semver.valid(trimmed, { loose: true });
+    const parsed = exact ? semver.parse(exact, { loose: true }) : null;
     if (parsed) {
       return {
         major: parsed.major,
@@ -79,9 +79,9 @@ export function parseSemver(version: string): { major: number; minor: number; pa
     }
 
     // 2) Range -> use minimal satisfying version as canonical representative
-    const validRange = semver.validRange(trimmed, { includePrerelease: true, loose: true });
+    const validRange = semver.validRange(trimmed, { loose: true });
     if (validRange) {
-      const min = semver.minVersion(validRange, { includePrerelease: true, loose: true });
+      const min = semver.minVersion(validRange, { loose: true });
       if (min) {
         return {
           major: min.major,
@@ -93,7 +93,7 @@ export function parseSemver(version: string): { major: number; minor: number; pa
     }
 
     // 3) Loose/coercible forms
-    const coerced = semver.coerce(trimmed, { includePrerelease: true, loose: true });
+    const coerced = semver.coerce(trimmed, { loose: true });
     if (coerced) {
       return {
         major: coerced.major,

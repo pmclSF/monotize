@@ -20,6 +20,7 @@ import {
   ensureDir,
   writeJson,
   readFile,
+  readJson,
   pathExists,
   writeFile,
   move,
@@ -35,32 +36,12 @@ import {
   generateRecommendations,
 } from '../commands/analyze.js';
 import {
-  resolveDependencyConflicts,
   getConflictSummary,
 } from '../resolvers/dependencies.js';
 import {
-  generateWorkspaceConfig,
-} from '../strategies/workspace-config.js';
-import {
-  generateWorkspaceToolConfig,
-  getWorkspaceToolDependencies,
-  updateScriptsForWorkspaceTool,
-} from '../strategies/workspace-tools.js';
-import { mergeWorkflowsToFiles } from '../strategies/workflow-merge.js';
-import {
-  generateRootReadme,
-  mergeGitignores,
-  resolveFileCollisionToContent,
-} from '../strategies/merge-files.js';
-import {
-  createPackageManagerConfig,
-  generateWorkspaceFiles,
-  getWorkspacesConfig,
-  getGitignoreEntries,
-  getPackageManagerField,
   parsePackageManagerType,
-  validatePackageManager,
 } from '../strategies/package-manager.js';
+import { buildApplyPlan } from '../core/plan-builder.js';
 import { validatePlan } from '../commands/apply.js';
 import type { VerifyContext } from '../commands/verify-checks.js';
 import {
@@ -86,7 +67,6 @@ import {
   computePlanHash,
 } from '../utils/operation-log.js';
 import type { OperationLogEntry, ApplyStepId } from '../types/index.js';
-import { readJson } from '../utils/fs.js';
 import crypto from 'node:crypto';
 
 // ─── Analyze ───────────────────────────────────────────────────────────────

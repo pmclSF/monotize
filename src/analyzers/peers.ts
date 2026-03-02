@@ -9,16 +9,16 @@ import { getHighestVersion } from './dependencies.js';
 
 function normalizeToSemver(version: string): string | null {
   try {
-    const exact = semver.valid(version, { includePrerelease: true, loose: true });
+    const exact = semver.valid(version, { loose: true });
     if (exact) return exact;
 
-    const validRange = semver.validRange(version, { includePrerelease: true, loose: true });
+    const validRange = semver.validRange(version, { loose: true });
     if (validRange) {
-      const min = semver.minVersion(validRange, { includePrerelease: true, loose: true });
+      const min = semver.minVersion(validRange, { loose: true });
       if (min) return min.version;
     }
 
-    const coerced = semver.coerce(version, { includePrerelease: true, loose: true });
+    const coerced = semver.coerce(version, { loose: true });
     if (coerced) return coerced.version;
   } catch {
     return null;

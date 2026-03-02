@@ -78,5 +78,12 @@
     "turborepo",
     "nx"
   ],
+  "pnpm": {
+    "overrides": {
+      "esbuild": ">=0.25.0",
+      "minimatch": ">=9.0.7",
+      "rollup": ">=4.59.0"
+    }
+  },
   "license": "MIT"
 }
