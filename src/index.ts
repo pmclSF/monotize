@@ -8,13 +8,26 @@ import { planCommand } from './commands/plan.js';
 import { verifyCommand } from './commands/verify.js';
 import { prepareCommand } from './commands/prepare.js';
 import { uiCommand } from './commands/ui.js';
+import { addCommand } from './commands/add.js';
+import { archiveCommand } from './commands/archive.js';
+import { migrateBranchCommand } from './commands/migrate-branch.js';
+import { registerConfigureCommand } from './commands/configure.js';
+import { CliExitError } from './utils/errors.js';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const { version: MONOTIZE_VERSION } = JSON.parse(
+  readFileSync(join(__dirname, '..', 'package.json'), 'utf-8')
+);
 
 const program = new Command();
 
 program
   .name('monorepo')
   .description('Combine multiple Git repositories into a monorepo')
-  .version('0.2.0');
+  .version(MONOTIZE_VERSION);
 
 program
   .command('merge')
@@ -145,8 +158,57 @@ program
   .option('--patch-only', 'Emit patches only (default mode)')
   .option('--out-dir <dir>', 'Write patches and checklist to directory')
   .option('--prep-workspace <dir>', 'Clone repos, apply patches, commit on branch')
+  .option('--out <file>', 'Write PreparationPlan JSON to file')
   .option('-v, --verbose', 'Verbose output')
   .action(prepareCommand);
+
+program
+  .command('add')
+  .description('Add a repository to an existing monorepo')
+  .argument('<repo>', 'Repository to add (URL, GitHub shorthand, or local path)')
+  .requiredOption('--to <dir>', 'Path to target monorepo')
+  .option('-p, --packages-dir <name>', 'Packages subdirectory name', 'packages')
+  .option('--out <file>', 'Output path for plan JSON')
+  .option('--apply', 'Apply immediately after planning')
+  .option(
+    '--conflict-strategy <strategy>',
+    'Dependency conflict resolution strategy (highest, lowest, prompt)',
+    'highest'
+  )
+  .option(
+    '--package-manager <pm>',
+    'Package manager to use (pnpm, yarn, yarn-berry, npm)',
+    'pnpm'
+  )
+  .option('-v, --verbose', 'Verbose output')
+  .action(addCommand);
+
+program
+  .command('archive')
+  .description('Generate deprecation notices and optionally archive source repositories')
+  .argument('<repos...>', 'Repositories to archive (URLs or GitHub shorthand)')
+  .requiredOption('--monorepo-url <url>', 'URL of the monorepo these repos migrated to')
+  .option('--out <file>', 'Output path for archive plan JSON')
+  .option('--apply', 'Apply archive operations via GitHub API')
+  .option('--token-from-env', 'Read GitHub token from GITHUB_TOKEN environment variable')
+  .option('-v, --verbose', 'Verbose output')
+  .action(archiveCommand);
+
+program
+  .command('migrate-branch')
+  .description('Migrate a branch from a source repo to a monorepo')
+  .argument('<branch>', 'Branch name to migrate')
+  .requiredOption('--from <repo>', 'Source repository path')
+  .requiredOption('--to <monorepo>', 'Target monorepo path')
+  .option(
+    '--strategy <strategy>',
+    'Migration strategy (subtree, replay)',
+    'subtree'
+  )
+  .option('--out <file>', 'Output path for branch plan JSON')
+  .option('--apply', 'Apply migration immediately')
+  .option('-v, --verbose', 'Verbose output')
+  .action(migrateBranchCommand);
 
 program
   .command('ui')
@@ -156,4 +218,12 @@ program
   .option('-v, --verbose', 'Verbose output')
   .action(uiCommand);
 
-program.parse();
+registerConfigureCommand(program);
+
+program.parseAsync().catch((err: unknown) => {
+  if (err instanceof CliExitError) {
+    process.exit(err.exitCode);
+  }
+  // Re-throw unexpected errors
+  throw err;
+});

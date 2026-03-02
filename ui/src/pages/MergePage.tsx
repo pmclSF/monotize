@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type { UseWebSocketReturn } from '../hooks/useWebSocket';
 import { useOperation } from '../hooks/useOperation';
 import { postPlan, postApply } from '../api/client';
@@ -7,19 +7,21 @@ import { CliHint } from '../components/CliHint';
 import { LogStream } from '../components/LogStream';
 import { ExportButton } from '../components/ExportButton';
 import { SkipButton } from '../components/SkipButton';
+import { TreePreview } from '../components/TreePreview';
 
 interface MergePageProps {
   ws: UseWebSocketReturn;
   repos: string[];
   options: WizardGlobalOptions;
   onPlanPathChange: (planPath: string) => void;
+  onPackageNamesChange: (names: string[]) => void;
   onComplete: () => void;
   onSkip: (stepId: string, rationale: string) => void;
 }
 
 type Phase = 'plan' | 'apply';
 
-export function MergePage({ ws, repos, options, onPlanPathChange, onComplete, onSkip }: MergePageProps) {
+export function MergePage({ ws, repos, options, onPlanPathChange, onPackageNamesChange, onComplete, onSkip }: MergePageProps) {
   const [phase, setPhase] = useState<Phase>('plan');
   const planOp = useOperation(ws);
   const applyOp = useOperation(ws);
@@ -39,7 +41,7 @@ export function MergePage({ ws, repos, options, onPlanPathChange, onComplete, on
       });
       planOp.start(opId);
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Request failed');
+      setError(err instanceof Error ? err.message : 'Request failed');
     } finally {
       setLoading(false);
     }
@@ -52,20 +54,31 @@ export function MergePage({ ws, repos, options, onPlanPathChange, onComplete, on
       const { opId } = await postApply(planPath, options.outputDir);
       applyOp.start(opId);
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Request failed');
+      setError(err instanceof Error ? err.message : 'Request failed');
     } finally {
       setLoading(false);
     }
   };
 
-  const planResult = planOp.result as { planPath?: string; plan?: Record<string, unknown> } | null;
+  const planResult = planOp.result as { planPath?: string; plan?: Record<string, unknown>; operations?: Array<{ outputs?: string[] }> } | null;
   const applyResult = applyOp.result as { outputDir?: string; packageCount?: number } | null;
+  const [error, setError] = useState<string | null>(null);
 
-  // Auto-set plan path when plan completes
-  if (planResult?.planPath && planPath !== planResult.planPath) {
-    setPlanPath(planResult.planPath);
-    onPlanPathChange(planResult.planPath);
-  }
+  // Auto-set plan path and extract package names when plan completes
+  useEffect(() => {
+    if (planResult?.planPath && planPath !== planResult.planPath) {
+      setPlanPath(planResult.planPath);
+      onPlanPathChange(planResult.planPath);
+    }
+    if (planResult?.plan?.sources && Array.isArray(planResult.plan.sources)) {
+      const names = (planResult.plan.sources as Array<{ name?: string }>)
+        .map((s) => s.name)
+        .filter((n): n is string => !!n);
+      if (names.length > 0) {
+        onPackageNamesChange(names);
+      }
+    }
+  }, [planResult?.planPath, planResult?.plan?.sources]);
 
   const planCliArgs = [
     'monorepo plan', ...repos,
@@ -80,6 +93,7 @@ export function MergePage({ ws, repos, options, onPlanPathChange, onComplete, on
   return (
     <div>
       <h2>3. Merge Repositories</h2>
+      {error && <div className="error-message" role="alert">{error}</div>}
 
       <div className="radio-group">
         <label>
@@ -121,6 +135,17 @@ export function MergePage({ ws, repos, options, onPlanPathChange, onComplete, on
                   <h3>Plan JSON</h3>
                   <div className="json-viewer">{JSON.stringify(planResult.plan, null, 2)}</div>
                 </>
+              )}
+              {planResult?.operations && (
+                <div style={{ marginTop: 16 }}>
+                  <h4>Planned File Structure</h4>
+                  <TreePreview
+                    files={planResult.operations
+                      .filter((op: { outputs?: string[] }) => op.outputs)
+                      .flatMap((op: { outputs?: string[] }) => op.outputs!)}
+                    title="Monorepo Structure"
+                  />
+                </div>
               )}
               <button className="primary" onClick={() => setPhase('apply')} style={{ marginTop: '1rem' }}>
                 Proceed to Apply

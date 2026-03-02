@@ -15,6 +15,8 @@ export interface UseWizardStateReturn {
   init: (repos: string[]) => Promise<void>;
   updateStep: (stepId: string, partial: Partial<WizardStepState>) => Promise<void>;
   goToStep: (stepId: string) => Promise<void>;
+  exportState: () => string | null;
+  importState: (json: string) => Promise<void>;
 }
 
 export function useWizardState(): UseWizardStateReturn {
@@ -67,5 +69,27 @@ export function useWizardState(): UseWizardStateReturn {
     [state, save],
   );
 
-  return { state, loading, error, save, init, updateStep, goToStep };
+  const exportState = useCallback((): string | null => {
+    if (!state) return null;
+    return JSON.stringify(state, null, 2);
+  }, [state]);
+
+  const importState = useCallback(
+    async (json: string) => {
+      try {
+        const parsed = JSON.parse(json) as WizardState;
+        if (!parsed.version || !parsed.steps || !Array.isArray(parsed.steps)) {
+          throw new Error('Invalid wizard state format');
+        }
+        await save(parsed);
+      } catch (err) {
+        throw err instanceof SyntaxError
+          ? new Error('Invalid JSON: ' + err.message)
+          : err;
+      }
+    },
+    [save],
+  );
+
+  return { state, loading, error, save, init, updateStep, goToStep, exportState, importState };
 }

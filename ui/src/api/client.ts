@@ -64,6 +64,7 @@ export interface WizardGlobalOptions {
   workspaceTool: string;
   planPath?: string;
   targetNodeVersion?: string;
+  packageNames?: string[];
 }
 
 export interface WizardState {

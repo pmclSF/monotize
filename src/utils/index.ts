@@ -4,3 +4,7 @@ export * from './validation.js';
 export * from './prompts.js';
 export * from './operation-log.js';
 export * from './redact.js';
+export * from './errors.js';
+export * from './concurrency.js';
+export * from './disk.js';
+export * from './progress.js';

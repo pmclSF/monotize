@@ -23,6 +23,9 @@ export function useWebSocket(): UseWebSocketReturn {
   useEffect(() => {
     let reconnectTimer: ReturnType<typeof setTimeout>;
     let ws: WebSocket;
+    let retryCount = 0;
+    const MAX_RETRIES = 10;
+    const BASE_DELAY = 1000;
 
     function connect() {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -30,12 +33,19 @@ export function useWebSocket(): UseWebSocketReturn {
       ws = new WebSocket(url);
       wsRef.current = ws;
 
-      ws.onopen = () => setConnected(true);
+      ws.onopen = () => {
+        setConnected(true);
+        retryCount = 0; // reset on successful connection
+      };
 
       ws.onclose = () => {
         setConnected(false);
-        // Reconnect after 2 seconds
-        reconnectTimer = setTimeout(connect, 2000);
+        if (retryCount < MAX_RETRIES) {
+          const delay = Math.min(BASE_DELAY * Math.pow(2, retryCount), 30000)
+            + Math.random() * 1000;
+          retryCount++;
+          reconnectTimer = setTimeout(connect, delay);
+        }
       };
 
       ws.onerror = () => {

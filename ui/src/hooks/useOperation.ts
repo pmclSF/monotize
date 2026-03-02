@@ -13,6 +13,8 @@ interface OperationState {
   isDone: boolean;
 }
 
+const MAX_LOGS = 1000;
+
 export function useOperation(ws: UseWebSocketReturn) {
   const [opId, setOpId] = useState<string | null>(null);
   const [state, setState] = useState<OperationState>({
@@ -34,11 +36,13 @@ export function useOperation(ws: UseWebSocketReturn) {
 
       setState((prev) => {
         switch (event.type) {
-          case 'log':
-            return {
-              ...prev,
-              logs: [...prev.logs, { level: event.level ?? 'info', message: event.message ?? '' }],
-            };
+          case 'log': {
+            const newLog = { level: event.level ?? 'info', message: event.message ?? '' };
+            const logs = prev.logs.length >= MAX_LOGS
+              ? [...prev.logs.slice(-MAX_LOGS + 1), newLog]
+              : [...prev.logs, newLog];
+            return { ...prev, logs };
+          }
           case 'result':
             return { ...prev, result: event.data ?? null };
           case 'error':

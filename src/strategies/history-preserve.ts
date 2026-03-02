@@ -10,7 +10,8 @@ export async function checkGitFilterRepo(): Promise<boolean> {
   try {
     execFileSync('git', ['filter-repo', '--version'], { stdio: 'pipe' });
     return true;
-  } catch {
+  } catch (_err) {
+    // git filter-repo not installed or not on PATH
     return false;
   }
 }
@@ -25,9 +26,18 @@ async function isGitRepo(dir: string): Promise<boolean> {
       stdio: 'pipe',
     });
     return true;
-  } catch {
+  } catch (_err) {
+    // Not a git repository
     return false;
   }
+}
+
+/**
+ * Sanitize a string for safe use in a Python bytes literal.
+ * Removes any characters that could break out of the string.
+ */
+function sanitizeForPython(s: string): string {
+  return s.replace(/[^a-zA-Z0-9 _\-\[\]().,:;!?#@&+=]/g, '');
 }
 
 /**
@@ -46,12 +56,14 @@ async function preserveHistoryWithFilterRepo(
   await copyDir(repoPath, workingDir);
 
   try {
-    // Rewrite paths to be under targetDir
-    const filterArgs = ['filter-repo', '--force', `--path-rename`, `:${targetDir}/`];
+    // Validate targetDir doesn't contain dangerous characters
+    const safeTargetDir = targetDir.replace(/[^a-zA-Z0-9_\-./]/g, '');
+    const filterArgs = ['filter-repo', '--force', '--path-rename', `:${safeTargetDir}/`];
 
     // Add commit message prefix if specified
     if (commitPrefix) {
-      filterArgs.push('--message-callback', `return b"${commitPrefix}" + message`);
+      const safePrefix = sanitizeForPython(commitPrefix);
+      filterArgs.push('--message-callback', `return b"${safePrefix}" + message`);
     }
 
     execFileSync('git', filterArgs, {
@@ -68,8 +80,8 @@ async function preserveHistoryWithFilterRepo(
         cwd: outputPath,
         stdio: 'pipe',
       });
-    } catch {
-      // Remote doesn't exist, which is fine
+    } catch (_err) {
+      // Remote doesn't exist yet, safe to ignore
     }
 
     execFileSync('git', ['remote', 'add', remoteName, workingDir], {
@@ -88,15 +100,15 @@ async function preserveHistoryWithFilterRepo(
         cwd: outputPath,
         stdio: 'pipe',
       });
-    } catch {
-      // Try with master branch
+    } catch (_err) {
+      // main branch merge failed, try master
       try {
         execFileSync('git', ['merge', `${remoteName}/master`, '--allow-unrelated-histories', '--no-edit'], {
           cwd: outputPath,
           stdio: 'pipe',
         });
-      } catch {
-        // Try to find the default branch
+      } catch (_err) {
+        // master branch merge also failed, try to find the default branch
         const branches = execFileSync('git', ['branch', '-r'], {
           cwd: outputPath,
           encoding: 'utf-8',
@@ -105,6 +117,7 @@ async function preserveHistoryWithFilterRepo(
         const remoteBranch = branches
           .split('\n')
           .map((b) => b.trim())
+          .filter((b) => !b.includes('->'))
           .find((b) => b.startsWith(`${remoteName}/`));
 
         if (remoteBranch) {
@@ -128,8 +141,8 @@ async function preserveHistoryWithFilterRepo(
     try {
       const fs = await import('fs-extra');
       await fs.remove(workingDir);
-    } catch {
-      // Ignore cleanup errors
+    } catch (_err) {
+      // Cleanup of working directory failed; non-fatal
     }
   }
 }
@@ -145,17 +158,15 @@ async function preserveHistoryWithSubtree(
 ): Promise<void> {
   const { targetDir } = options;
 
-  // Ensure the target directory exists
-  await ensureDir(path.join(outputPath, targetDir));
-
   // Check if repo has commits
   try {
     execFileSync('git', ['rev-parse', 'HEAD'], {
       cwd: repoPath,
       stdio: 'pipe',
     });
-  } catch {
-    // No commits, just copy files
+  } catch (_err) {
+    // No commits in repo, just copy files
+    await ensureDir(path.join(outputPath, targetDir));
     await copyDir(repoPath, path.join(outputPath, targetDir));
     return;
   }
@@ -169,8 +180,8 @@ async function preserveHistoryWithSubtree(
       cwd: outputPath,
       stdio: 'pipe',
     });
-  } catch {
-    // Remote doesn't exist, which is fine
+  } catch (_err) {
+    // Remote doesn't exist yet, safe to ignore
   }
 
   execFileSync('git', ['remote', 'add', remoteName, repoPath], {
@@ -196,18 +207,19 @@ async function preserveHistoryWithSubtree(
     } else if (branches.includes(`${remoteName}/master`)) {
       defaultBranch = 'master';
     } else {
-      // Find any branch from this remote
+      // Find any branch from this remote (skip HEAD -> symbolic refs)
       const remoteBranch = branches
         .split('\n')
         .map((b) => b.trim())
+        .filter((b) => !b.includes('->'))
         .find((b) => b.startsWith(`${remoteName}/`));
 
       if (remoteBranch) {
         defaultBranch = remoteBranch.replace(`${remoteName}/`, '');
       }
     }
-  } catch {
-    // Use default
+  } catch (_err) {
+    // Could not list remote branches, use default
   }
 
   // Use subtree add to merge with history
@@ -268,7 +280,7 @@ export async function preserveHistory(
         cwd: outputPath,
         stdio: 'pipe',
       });
-    } catch {
+    } catch (_err) {
       // No commits yet, create an initial commit
       execFileSync('git', ['commit', '--allow-empty', '-m', 'Initial commit'], {
         cwd: outputPath,
@@ -288,6 +300,81 @@ export async function preserveHistory(
 }
 
 /**
+ * Check all prerequisites for history preservation.
+ * Returns ok:true if all checks pass, or a list of issues.
+ */
+export async function checkHistoryPrerequisites(
+  repoPath: string,
+): Promise<{ ok: boolean; issues: string[] }> {
+  const issues: string[] = [];
+
+  // Check git is available
+  try {
+    execFileSync('which', ['git'], { stdio: 'pipe' });
+  } catch (_err) {
+    issues.push('git is not installed or not on PATH');
+  }
+
+  // Check source is a git repo
+  if (!(await isGitRepo(repoPath))) {
+    issues.push(`${repoPath} is not a git repository`);
+    return { ok: false, issues };
+  }
+
+  // Check for shallow clone
+  try {
+    const result = execFileSync('git', ['rev-parse', '--is-shallow-repository'], {
+      cwd: repoPath,
+      encoding: 'utf-8',
+    });
+    if (result.trim() === 'true') {
+      issues.push('Repository is a shallow clone. Run `git fetch --unshallow` first.');
+    }
+  } catch (_err) {
+    // Older git versions don't support --is-shallow-repository, skip
+  }
+
+  // Check git-filter-repo availability
+  const hasFilterRepo = await checkGitFilterRepo();
+  if (!hasFilterRepo) {
+    issues.push('git-filter-repo is not installed (will fall back to git subtree)');
+  }
+
+  return { ok: issues.length === 0, issues };
+}
+
+/**
+ * Generate a dry-run report for history preservation.
+ * Shows commit count, contributors, and estimated time without making changes.
+ */
+export async function historyDryRun(
+  repoPath: string,
+  _targetDir: string,
+): Promise<{
+  commitCount: number;
+  contributors: string[];
+  estimatedSeconds: number;
+  hasFilterRepo: boolean;
+  strategy: 'filter-repo' | 'subtree';
+}> {
+  const commitCount = await getCommitCount(repoPath);
+  const contributors = await getContributors(repoPath);
+  const hasFilterRepo = await checkGitFilterRepo();
+
+  // Rough estimate: ~0.5s per commit for filter-repo, ~0.2s for subtree
+  const secondsPerCommit = hasFilterRepo ? 0.5 : 0.2;
+  const estimatedSeconds = Math.max(1, Math.ceil(commitCount * secondsPerCommit));
+
+  return {
+    commitCount,
+    contributors,
+    estimatedSeconds,
+    hasFilterRepo,
+    strategy: hasFilterRepo ? 'filter-repo' : 'subtree',
+  };
+}
+
+/**
  * Get the commit count for a repository
  */
 export async function getCommitCount(repoPath: string): Promise<number> {
@@ -297,7 +384,8 @@ export async function getCommitCount(repoPath: string): Promise<number> {
       encoding: 'utf-8',
     });
     return parseInt(result.trim(), 10);
-  } catch {
+  } catch (_err) {
+    // No commits or git error; return 0
     return 0;
   }
 }
@@ -319,7 +407,8 @@ export async function getContributors(repoPath: string): Promise<string[]> {
         .filter((line) => line.length > 0)
     );
     return [...contributors].sort();
-  } catch {
+  } catch (_err) {
+    // No commits or git error; return empty
     return [];
   }
 }

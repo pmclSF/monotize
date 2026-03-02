@@ -60,6 +60,21 @@ packages:
     expect(result['typescript']).toBe('5.3.3');
   });
 
+  it('should parse flat format with object-style dependency values', () => {
+    const content = `lockfileVersion: 5
+
+dependencies:
+  lodash:
+    version: 4.17.21
+    resolved: https://registry.npmjs.org/lodash
+  react: 18.2.0
+`;
+
+    const result = parsePnpmLock(content);
+    expect(result['lodash']).toBe('4.17.21');
+    expect(result['react']).toBe('18.2.0');
+  });
+
   it('should return empty object for malformed content', () => {
     const result = parsePnpmLock('this is not valid yaml at all {}[]');
     expect(result).toEqual({});
@@ -182,6 +197,39 @@ describe('parsePackageLock', () => {
   it('should return empty object for empty packages', () => {
     const result = parsePackageLock(JSON.stringify({ lockfileVersion: 3, packages: {} }));
     expect(result).toEqual({});
+  });
+
+  it('should parse v1 format with dependencies key (no packages)', () => {
+    const lockData = {
+      name: 'my-app',
+      version: '1.0.0',
+      lockfileVersion: 1,
+      dependencies: {
+        lodash: { version: '4.17.21', resolved: 'https://...' },
+        react: { version: '18.2.0', resolved: 'https://...' },
+      },
+    };
+
+    const result = parsePackageLock(JSON.stringify(lockData));
+    expect(result['lodash']).toBe('4.17.21');
+    expect(result['react']).toBe('18.2.0');
+  });
+
+  it('should use v1 fallback when packages key has only root entry', () => {
+    const lockData = {
+      lockfileVersion: 2,
+      packages: {
+        '': { name: 'my-app', version: '1.0.0' },
+      },
+      dependencies: {
+        lodash: { version: '4.17.21' },
+        express: { version: '4.18.2' },
+      },
+    };
+
+    const result = parsePackageLock(JSON.stringify(lockData));
+    expect(result['lodash']).toBe('4.17.21');
+    expect(result['express']).toBe('4.18.2');
   });
 });
 

@@ -246,4 +246,58 @@ describe('plan → apply roundtrip', () => {
     expect(tree).toContain('package.json');
     expect(tree).toContain('README.md');
   });
+
+  it('plan + apply + verify roundtrip should pass static verification', async () => {
+    const repo1 = await createGitRepo(testDir, 'pkg-x', {
+      name: 'pkg-x',
+      version: '1.0.0',
+      dependencies: { lodash: '^4.17.21' },
+      scripts: { build: 'tsc', test: 'vitest' },
+    }, {
+      'src/index.ts': 'export const x = 1;\n',
+    });
+
+    const repo2 = await createGitRepo(testDir, 'pkg-y', {
+      name: 'pkg-y',
+      version: '2.0.0',
+      dependencies: { express: '^4.18.0' },
+      scripts: { test: 'jest' },
+    }, {
+      'src/index.ts': 'export const y = 2;\n',
+    });
+
+    const planFile = path.join(testDir, 'verify.plan.json');
+    const outDir = path.join(testDir, 'verify-out');
+
+    // Phase 1: plan
+    runCLI([
+      'plan',
+      repo1, repo2,
+      '-o', outDir,
+      '--plan-file', planFile,
+      '-y',
+      '--no-install',
+      '--conflict-strategy', 'highest',
+    ]);
+
+    // Phase 2: apply
+    runCLI([
+      'apply',
+      '--plan', planFile,
+      '--out', outDir,
+    ]);
+
+    // Phase 3: verify (static tier should pass)
+    const verifyResult = runCLI([
+      'verify',
+      '--dir', outDir,
+      '--tier', 'static',
+      '--json',
+    ]);
+
+    const result = JSON.parse(verifyResult.stdout);
+    expect(result.ok).toBe(true);
+    expect(result.tier).toBe('static');
+    expect(result.summary.fail).toBe(0);
+  });
 });

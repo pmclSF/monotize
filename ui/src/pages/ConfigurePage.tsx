@@ -7,6 +7,7 @@ import { CliHint } from '../components/CliHint';
 import { LogStream } from '../components/LogStream';
 import { ExportButton } from '../components/ExportButton';
 import { SkipButton } from '../components/SkipButton';
+import { DiffViewer } from '../components/DiffViewer';
 
 interface ConfigurePageProps {
   ws: UseWebSocketReturn;
@@ -16,14 +17,22 @@ interface ConfigurePageProps {
   onSkip: (stepId: string, rationale: string) => void;
 }
 
+interface ConfigurePatch {
+  path: string;
+  before?: string;
+  after: string;
+}
+
 interface ConfigureResult {
   scaffoldedFiles: Array<{ relativePath: string; description: string }>;
   skippedConfigs: Array<{ name: string; reason: string }>;
+  patches?: ConfigurePatch[];
 }
 
 export function ConfigurePage({ ws, options, packageNames, onComplete, onSkip }: ConfigurePageProps) {
   const op = useOperation(ws);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [namesInput, setNamesInput] = useState(packageNames.join(', '));
 
   const names = namesInput.split(/[\n,]/).map((s) => s.trim()).filter(Boolean);
@@ -39,7 +48,7 @@ export function ConfigurePage({ ws, options, packageNames, onComplete, onSkip }:
       });
       op.start(opId);
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Request failed');
+      setError(err instanceof Error ? err.message : 'Request failed');
     } finally {
       setLoading(false);
     }
@@ -50,6 +59,7 @@ export function ConfigurePage({ ws, options, packageNames, onComplete, onSkip }:
   return (
     <div>
       <h2>4. Configure Workspace</h2>
+      {error && <div className="error-message" role="alert">{error}</div>}
 
       <div className="form-group">
         <label>Package names (comma or newline separated)</label>
@@ -102,6 +112,22 @@ export function ConfigurePage({ ws, options, packageNames, onComplete, onSkip }:
                   ))}
                 </tbody>
               </table>
+            </>
+          )}
+
+          {result.patches && result.patches.length > 0 && (
+            <>
+              <h3>Config Patches ({result.patches.length})</h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {result.patches.map((patch, i) => (
+                  <DiffViewer
+                    key={i}
+                    path={patch.path}
+                    before={patch.before}
+                    after={patch.after}
+                  />
+                ))}
+              </div>
             </>
           )}
 
