@@ -343,8 +343,9 @@ export async function initCommand(
         } else {
           logger.debug('Git repository already exists');
         }
-      } catch {
-        logger.warn('Failed to initialize git repository');
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        logger.warn(`Failed to initialize git repository: ${message}`);
       }
     }
 

@@ -387,8 +387,9 @@ export async function mergeCommand(repos: string[], options: CLIOptions): Promis
           stdio: 'pipe',
         });
         logger.debug('Initialized git repository in output directory');
-      } catch {
-        // Git may already be initialized
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        logger.debug(`git init skipped in output directory: ${message}`);
       }
 
       for (const repo of repoPaths) {
