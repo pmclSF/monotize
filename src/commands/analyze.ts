@@ -603,8 +603,10 @@ export async function analyzeCommand(
     if (tempDir) {
       try {
         await removeDir(tempDir);
-      } catch {
-        // Ignore cleanup errors
+      } catch (cleanupError) {
+        const cleanupMessage =
+          cleanupError instanceof Error ? cleanupError.message : String(cleanupError);
+        logger.debug(`Failed to clean temporary directory ${tempDir}: ${cleanupMessage}`);
       }
     }
 
