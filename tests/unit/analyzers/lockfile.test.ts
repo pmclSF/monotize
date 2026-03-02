@@ -84,6 +84,24 @@ dependencies:
     const result = parsePnpmLock('');
     expect(result).toEqual({});
   });
+
+  it('should fall back to parsing versions from packages keys', () => {
+    const content = `lockfileVersion: '9.0'
+
+importers:
+  .: {}
+
+packages:
+  '@types/node@20.19.0':
+    resolution: {integrity: sha512-abc}
+  '/lodash/4.17.21':
+    resolution: {integrity: sha512-def}
+`;
+
+    const result = parsePnpmLock(content);
+    expect(result['@types/node']).toBe('20.19.0');
+    expect(result['lodash']).toBe('4.17.21');
+  });
 });
 
 describe('parseYarnLock', () => {
@@ -138,6 +156,17 @@ react@^18.2.0:
   it('should return empty object for malformed content', () => {
     const result = parseYarnLock('not a valid lockfile');
     expect(result).toEqual({});
+  });
+
+  it('should parse multi-selector entries and keep highest resolved version', () => {
+    const content = `# yarn lockfile v1
+
+"react@^18.0.0", "react@^18.2.0":
+  version "18.2.0"
+`;
+
+    const result = parseYarnLock(content);
+    expect(result['react']).toBe('18.2.0');
   });
 });
 
@@ -301,5 +330,17 @@ express@^4.18.0:
     await fs.writeFile(path.join(testDir, 'pnpm-lock.yaml'), '');
     const result = await parseLockfile(testDir, 'empty-lock');
     expect(result).toBeNull();
+  });
+
+  it('should emit parse warning callback on invalid lockfile', async () => {
+    await fs.writeFile(path.join(testDir, 'pnpm-lock.yaml'), '[');
+    const warnings: string[] = [];
+    const result = await parseLockfile(testDir, 'warn-lock', {
+      onParseWarning: (message) => warnings.push(message),
+    });
+
+    expect(result).toBeNull();
+    expect(warnings.length).toBeGreaterThan(0);
+    expect(warnings[0]).toContain('warn-lock');
   });
 });

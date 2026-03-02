@@ -5,20 +5,38 @@ import type {
   LockfileResolution,
   ConfidenceLevel,
 } from '../types/index.js';
-import { parseSemver } from './dependencies.js';
+import { getHighestVersion } from './dependencies.js';
+
+function normalizeToSemver(version: string): string | null {
+  try {
+    const exact = semver.valid(version, { includePrerelease: true, loose: true });
+    if (exact) return exact;
+
+    const validRange = semver.validRange(version, { includePrerelease: true, loose: true });
+    if (validRange) {
+      const min = semver.minVersion(validRange, { includePrerelease: true, loose: true });
+      if (min) return min.version;
+    }
+
+    const coerced = semver.coerce(version, { includePrerelease: true, loose: true });
+    if (coerced) return coerced.version;
+  } catch {
+    return null;
+  }
+
+  return null;
+}
 
 /**
  * Semver range satisfaction check using the semver package.
  * Handles all range types including complex ranges (||, hyphen, etc.).
  */
 export function satisfiesRange(version: string, range: string): boolean {
-  const parsed = parseSemver(version);
-  if (!parsed) return false;
-
-  const cleanVersion = `${parsed.major}.${parsed.minor}.${parsed.patch}${parsed.prerelease ? `-${parsed.prerelease}` : ''}`;
+  const cleanVersion = normalizeToSemver(version);
+  if (!cleanVersion) return false;
 
   try {
-    return semver.satisfies(cleanVersion, range);
+    return semver.satisfies(cleanVersion, range, { includePrerelease: true, loose: true });
   } catch {
     return false;
   }
@@ -70,11 +88,9 @@ export function analyzePeerDependencies(
       if (!bestVersion) {
         const versions = declaredVersions.get(peerDepName);
         if (versions && versions.length > 0) {
-          // Use the first declared version (stripped of range prefixes) as approximation
-          const parsed = parseSemver(versions[0]);
-          if (parsed) {
-            bestVersion = `${parsed.major}.${parsed.minor}.${parsed.patch}`;
-          }
+          const bestDeclared = getHighestVersion(versions);
+          const normalized = normalizeToSemver(bestDeclared);
+          if (normalized) bestVersion = normalized;
         }
       }
 

@@ -47,21 +47,20 @@ describe('Dependency Analysis Edge Cases', () => {
     describe('range versions', () => {
       it('should handle >=x.y.z <a.b.c ranges', () => {
         const versions = ['>=1.0.0 <2.0.0', '^1.5.0', '1.9.0'];
-        // Range versions can't be parsed as simple semver
         const highest = getHighestVersion(versions);
-        expect(highest).toBeDefined();
+        expect(highest).toBe('1.9.0');
       });
 
       it('should handle hyphen ranges (1.0.0 - 2.0.0)', () => {
         const versions = ['1.0.0 - 2.0.0', '1.5.0'];
         const highest = getHighestVersion(versions);
-        expect(highest).toBeDefined();
+        expect(highest).toBe('1.5.0');
       });
 
       it('should handle or ranges (||)', () => {
-        const versions = ['^1.0.0 || ^2.0.0', '1.5.0'];
+        const versions = ['^1.0.0 || ^2.0.0', '^2.5.0'];
         const highest = getHighestVersion(versions);
-        expect(highest).toBeDefined();
+        expect(highest).toBe('^2.5.0');
       });
     });
 

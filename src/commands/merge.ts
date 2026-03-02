@@ -51,6 +51,8 @@ import {
 } from '../strategies/workspace-tools.js';
 import { preserveHistory, checkGitFilterRepo } from '../strategies/history-preserve.js';
 import { mergeWorkflows } from '../strategies/workflow-merge.js';
+import { buildApplyPlan } from '../core/plan-builder.js';
+import { applyCommand } from './apply.js';
 import {
   resolveDependencyConflicts,
   formatConflict,
@@ -245,6 +247,107 @@ export async function mergeCommand(repos: string[], options: CLIOptions): Promis
         logger.warn('git filter-repo not found. Will use git subtree for history preservation.');
         logger.info('For better results, install git filter-repo: pip install git-filter-repo');
       }
+    }
+
+    // Unified path: merge = build plan + apply (non-history mode).
+    if (!mergeOptions.preserveHistory) {
+      tempDir = await createTempDir('merge-plan-');
+      const sourcesDir = path.join(tempDir, 'sources');
+
+      const built = await buildApplyPlan({
+        repos,
+        outputDir: mergeOptions.output,
+        packagesDir: mergeOptions.packagesDir,
+        sourcesDir,
+        conflictStrategy: mergeOptions.conflictStrategy,
+        packageManager: pmType,
+        autoDetectPm: options.autoDetectPm,
+        workspaceTool: mergeOptions.workspaceTool || 'none',
+        workflowStrategy: mergeOptions.workflowStrategy || 'combine',
+        install: mergeOptions.install,
+        noHoist: mergeOptions.noHoist,
+        pinVersions: mergeOptions.pinVersions,
+        yes: mergeOptions.yes,
+        interactive: !mergeOptions.yes && !mergeOptions.dryRun,
+        verbose: mergeOptions.verbose,
+        logger,
+        promptConflictStrategy,
+        promptFileCollisionStrategy,
+      });
+
+      if (built.depAnalysis.conflicts.length > 0) {
+        const summary = getConflictSummary(built.depAnalysis.conflicts);
+        logger.warn(
+          `Found ${built.depAnalysis.conflicts.length} dependency conflicts ` +
+            `(${summary.incompatible} incompatible, ${summary.major} major, ${summary.minor} minor)`
+        );
+      } else {
+        logger.success('No dependency conflicts detected');
+      }
+
+      if (built.collisions.length > 0) {
+        logger.warn(`Found ${built.collisions.length} file collisions`);
+      } else {
+        logger.success('No file collisions detected');
+      }
+
+      if (mergeOptions.dryRun) {
+        printDryRunReport(
+          built.repoPaths,
+          built.depAnalysis.conflicts,
+          built.collisions,
+          mergeOptions,
+          built.pmConfig
+        );
+        await cleanup();
+        return;
+      }
+
+      if (await pathExists(mergeOptions.output)) {
+        if (!mergeOptions.yes) {
+          const overwrite = await promptConfirm(
+            `Output directory ${mergeOptions.output} already exists. Overwrite?`,
+            false
+          );
+          if (!overwrite) {
+            logger.warn('Aborted by user');
+            await cleanup();
+            return;
+          }
+        }
+        await removeDir(mergeOptions.output);
+      }
+      await ensureDir(path.dirname(mergeOptions.output));
+
+      const transientPlanPath = path.join(tempDir, 'merge.apply-plan.json');
+      await writeJson(transientPlanPath, built.plan, { spaces: 2 });
+      await applyCommand({
+        plan: transientPlanPath,
+        out: mergeOptions.output,
+        verbose: mergeOptions.verbose,
+      });
+
+      logger.log('');
+      logger.success(chalk.bold('Monorepo created successfully!'));
+      logger.log('');
+      logger.log(`  ${chalk.cyan('Location:')} ${mergeOptions.output}`);
+      logger.log(`  ${chalk.cyan('Packages:')} ${built.plan.sources.length}`);
+      logger.log(
+        `  ${chalk.cyan('Package manager:')} ${getPackageManagerDisplayName(
+          built.pmConfig.type
+        )}`
+      );
+      logger.log('');
+      logger.log('Next steps:');
+      logger.log(`  cd ${mergeOptions.output}`);
+      if (!mergeOptions.install) {
+        logger.log(`  ${built.pmConfig.installCommand}`);
+      }
+      logger.log(`  ${built.pmConfig.runAllCommand('build')}`);
+
+      await cleanup();
+      tempDir = null;
+      return;
     }
 
     // Step 1: Validate repo sources

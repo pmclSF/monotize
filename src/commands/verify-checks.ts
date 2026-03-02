@@ -171,8 +171,17 @@ export async function checkRootPackageJson(ctx: VerifyContext): Promise<VerifyCh
           ? check('root-scripts-exist', 'Root package.json has scripts', 'pass', 'static')
           : check('root-scripts-exist', 'Root package.json has no scripts', 'warn', 'static')
       );
-    } catch {
-      checks.push(check('root-private', 'Could not read root package.json', 'fail', 'static'));
+    } catch (error) {
+      checks.push(
+        check(
+          'root-private',
+          'Could not read root package.json',
+          'fail',
+          'static',
+          'rootPackageJson',
+          getErrorMessage(error)
+        )
+      );
     }
   }
 
@@ -282,8 +291,17 @@ export async function checkRootScripts(ctx: VerifyContext): Promise<VerifyCheck[
     try {
       const root = await readJson<Record<string, unknown>>(path.join(ctx.dir, 'package.json'));
       scripts = (root.scripts as Record<string, string>) || {};
-    } catch {
-      return [check('root-scripts', 'Could not read root package.json scripts', 'warn', 'static')];
+    } catch (error) {
+      return [
+        check(
+          'root-scripts',
+          'Could not read root package.json scripts',
+          'warn',
+          'static',
+          'rootPackageJson.scripts',
+          getErrorMessage(error)
+        ),
+      ];
     }
   }
 
@@ -342,8 +360,17 @@ export async function checkTsconfigSanity(ctx: VerifyContext): Promise<VerifyChe
           }
         }
       }
-    } catch {
-      checks.push(check('tsconfig:root', 'Root tsconfig.json is not valid JSON', 'fail', 'static'));
+    } catch (error) {
+      checks.push(
+        check(
+          'tsconfig:root',
+          'Root tsconfig.json is not valid JSON',
+          'fail',
+          'static',
+          undefined,
+          getErrorMessage(error)
+        )
+      );
     }
   }
 
@@ -356,8 +383,17 @@ export async function checkTsconfigSanity(ctx: VerifyContext): Promise<VerifyChe
         const content = await readFile(pkgTsconfigPath);
         JSON.parse(content);
         checks.push(check(`tsconfig:${pkg.repoName}`, `Package ${pkg.repoName} tsconfig.json is valid JSON`, 'pass', 'static'));
-      } catch {
-        checks.push(check(`tsconfig:${pkg.repoName}`, `Package ${pkg.repoName} tsconfig.json is not valid JSON`, 'fail', 'static'));
+      } catch (error) {
+        checks.push(
+          check(
+            `tsconfig:${pkg.repoName}`,
+            `Package ${pkg.repoName} tsconfig.json is not valid JSON`,
+            'fail',
+            'static',
+            undefined,
+            getErrorMessage(error)
+          )
+        );
       }
     }
   }

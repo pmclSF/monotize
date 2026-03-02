@@ -63,29 +63,46 @@ export function parseSemver(version: string): { major: number; minor: number; pa
     return null;
   }
 
-  // Strip range operators and take the first version token
-  const cleaned = version.replace(/^[\^~=><]+/, '').replace(/^>=|<=|>|</, '');
-  const firstVersion = cleaned.split(/\s+/)[0];
+  const trimmed = version.trim();
 
-  // Try parsing with semver first (handles prerelease, build metadata correctly)
-  const parsed = semver.parse(firstVersion);
-  if (parsed) {
-    return {
-      major: parsed.major,
-      minor: parsed.minor,
-      patch: parsed.patch,
-      prerelease: parsed.prerelease.length ? parsed.prerelease.join('.') : undefined,
-    };
-  }
+  try {
+    // 1) Exact semver
+    const exact = semver.valid(trimmed, { includePrerelease: true, loose: true });
+    const parsed = exact ? semver.parse(exact, { includePrerelease: true, loose: true }) : null;
+    if (parsed) {
+      return {
+        major: parsed.major,
+        minor: parsed.minor,
+        patch: parsed.patch,
+        prerelease: parsed.prerelease.length ? parsed.prerelease.join('.') : undefined,
+      };
+    }
 
-  // Fall back to coercion for loose formats
-  const coerced = semver.coerce(firstVersion);
-  if (coerced) {
-    return {
-      major: coerced.major,
-      minor: coerced.minor,
-      patch: coerced.patch,
-    };
+    // 2) Range -> use minimal satisfying version as canonical representative
+    const validRange = semver.validRange(trimmed, { includePrerelease: true, loose: true });
+    if (validRange) {
+      const min = semver.minVersion(validRange, { includePrerelease: true, loose: true });
+      if (min) {
+        return {
+          major: min.major,
+          minor: min.minor,
+          patch: min.patch,
+          prerelease: min.prerelease.length ? min.prerelease.join('.') : undefined,
+        };
+      }
+    }
+
+    // 3) Loose/coercible forms
+    const coerced = semver.coerce(trimmed, { includePrerelease: true, loose: true });
+    if (coerced) {
+      return {
+        major: coerced.major,
+        minor: coerced.minor,
+        patch: coerced.patch,
+      };
+    }
+  } catch {
+    return null;
   }
 
   return null;
@@ -106,10 +123,8 @@ function compareSemver(a: string, b: string): number {
   if (!parsedA) return -1; // Non-semver goes first (lower priority)
   if (!parsedB) return 1;
 
-  // Reconstruct valid semver strings for comparison
   const verA = `${parsedA.major}.${parsedA.minor}.${parsedA.patch}${parsedA.prerelease ? `-${parsedA.prerelease}` : ''}`;
   const verB = `${parsedB.major}.${parsedB.minor}.${parsedB.patch}${parsedB.prerelease ? `-${parsedB.prerelease}` : ''}`;
-
   return semver.compare(verA, verB);
 }
 
@@ -273,7 +288,17 @@ export async function analyzeDependencies(
   // Parse lockfiles for each repo
   const lockfileResolutions: LockfileResolution[] = [];
   for (const repo of repoPaths) {
-    const resolution = await parseLockfile(repo.path, repo.name);
+    const resolution = await parseLockfile(repo.path, repo.name, {
+      onParseWarning: (message) => {
+        warnings.push({
+          name: 'lockfile',
+          version: 'invalid',
+          source: repo.name,
+          type: 'parse-error',
+          message,
+        });
+      },
+    });
     if (resolution) {
       lockfileResolutions.push(resolution);
     }

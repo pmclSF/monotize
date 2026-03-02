@@ -184,189 +184,45 @@ export async function runPlan(
   logger: Logger,
 ): Promise<{ planPath: string; plan: ApplyPlan }> {
   const outputDir = path.resolve(options.output || './monorepo');
-  const packagesDir = options.packagesDir || 'packages';
-  const workspaceTool: WorkspaceTool = options.workspaceTool || 'none';
-  const workflowStrategy: WorkflowMergeStrategy = options.workflowStrategy || 'combine';
-  const noHoist = options.hoist === false;
-  const conflictStrategy: ConflictStrategy = options.conflictStrategy || 'highest';
-
-  // Generate plan file path
   const planFilePath = path.resolve(`${path.basename(outputDir)}.plan.json`);
   const sourcesDir = `${planFilePath}.sources`;
+  const workspaceTool: WorkspaceTool = options.workspaceTool || 'none';
+  const workflowStrategy: WorkflowMergeStrategy = options.workflowStrategy || 'combine';
+  const conflictStrategy: ConflictStrategy = options.conflictStrategy || 'highest';
+  const pmType = parsePackageManagerType(options.packageManager || 'pnpm');
 
-  // Validate
-  logger.info('Validating repository sources...');
-  const validation = await validateRepoSources(repos);
-  if (!validation.valid) {
-    throw new Error(`Validation failed: ${validation.errors.join(', ')}`);
-  }
-  logger.success(`Found ${validation.sources.length} repositories to merge`);
-
-  // Clone/copy repos
-  await ensureDir(sourcesDir);
-  logger.info('Fetching repositories...');
-  const repoPaths = await cloneOrCopyRepos(validation.sources, sourcesDir, {
-    logger,
+  const result = await buildApplyPlan({
+    repos,
+    outputDir,
+    packagesDir: options.packagesDir || 'packages',
+    sourcesDir,
+    conflictStrategy,
+    packageManager: pmType,
+    autoDetectPm: false,
+    workspaceTool,
+    workflowStrategy,
+    install: options.install !== false,
+    noHoist: options.hoist === false,
+    pinVersions: options.pinVersions === true,
+    yes: true,
+    interactive: false,
     verbose: true,
+    logger,
   });
 
-  // Package manager
-  const pmType = parsePackageManagerType(options.packageManager || 'pnpm');
-  const pmValidation = validatePackageManager(pmType);
-  if (!pmValidation.valid) {
-    throw new Error(pmValidation.error!);
-  }
-  const pmConfig = createPackageManagerConfig(pmType);
-
-  // Analyze dependencies
-  logger.info('Analyzing dependencies...');
-  const depAnalysis = await analyzeDependencies(repoPaths);
-
-  if (depAnalysis.conflicts.length > 0) {
-    const summary = getConflictSummary(depAnalysis.conflicts);
+  if (result.depAnalysis.conflicts.length > 0) {
+    const summary = getConflictSummary(result.depAnalysis.conflicts);
     logger.warn(
-      `Found ${depAnalysis.conflicts.length} dependency conflicts ` +
+      `Found ${result.depAnalysis.conflicts.length} dependency conflicts ` +
       `(${summary.incompatible} incompatible, ${summary.major} major, ${summary.minor} minor)`,
     );
   }
 
-  // File collisions
-  logger.info('Detecting file collisions...');
-  const collisions = await detectFileCollisions(repoPaths);
-
-  // Resolve dependency conflicts (always use non-interactive strategy)
-  const resolvedDeps = await resolveDependencyConflicts(
-    depAnalysis.conflicts,
-    conflictStrategy,
-    depAnalysis.resolvedDependencies,
-    depAnalysis.resolvedDevDependencies,
-  );
-
-  // Generate workspace config
-  const workspaceConfig = generateWorkspaceConfig(depAnalysis.packages, {
-    rootName: path.basename(outputDir),
-    packagesDir,
-    dependencies: noHoist ? {} : resolvedDeps.dependencies,
-    devDependencies: noHoist ? {} : resolvedDeps.devDependencies,
-    pmConfig,
-  });
-
-  // Update scripts for workspace tool
-  if (workspaceTool !== 'none') {
-    const availableScripts = Object.keys(
-      (workspaceConfig.rootPackageJson.scripts as Record<string, string>) || {},
-    );
-    const updatedScripts = updateScriptsForWorkspaceTool(
-      workspaceConfig.rootPackageJson.scripts as Record<string, string>,
-      workspaceTool,
-      availableScripts,
-    );
-    workspaceConfig.rootPackageJson.scripts = updatedScripts;
-
-    const toolDeps = getWorkspaceToolDependencies(workspaceTool);
-    const existingDevDeps =
-      (workspaceConfig.rootPackageJson.devDependencies as Record<string, string>) || {};
-    workspaceConfig.rootPackageJson.devDependencies = { ...existingDevDeps, ...toolDeps };
-  }
-
-  // Add workspaces field for yarn/npm
-  const workspacesConfig = getWorkspacesConfig(pmConfig, packagesDir);
-  if (workspacesConfig) {
-    workspaceConfig.rootPackageJson.workspaces = workspacesConfig;
-  }
-  workspaceConfig.rootPackageJson.packageManager = getPackageManagerField(pmConfig);
-
-  // Collect plan files
-  const planFiles: Array<{ relativePath: string; content: string }> = [];
-
-  // Workspace files
-  const workspaceFilesList = generateWorkspaceFiles(pmConfig, packagesDir);
-  for (const file of workspaceFilesList) {
-    planFiles.push({ relativePath: file.filename, content: file.content });
-  }
-
-  // Workspace tool config
-  if (workspaceTool !== 'none') {
-    const toolConfig = generateWorkspaceToolConfig(depAnalysis.packages, workspaceTool);
-    if (toolConfig) {
-      planFiles.push({ relativePath: toolConfig.filename, content: toolConfig.content });
-    }
-  }
-
-  // Merge workflows
-  if (workflowStrategy !== 'skip') {
-    logger.info('Processing CI/CD workflows...');
-    try {
-      const workflowFiles = await mergeWorkflowsToFiles(repoPaths, workflowStrategy);
-      planFiles.push(
-        ...workflowFiles.map((f) => ({ relativePath: f.relativePath, content: f.content })),
-      );
-    } catch (error) {
-      logger.warn(
-        `Failed to process workflows: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
-  }
-
-  // Handle file collisions (use suggested strategy for non-interactive)
-  for (const collision of collisions) {
-    const collisionFiles = await resolveFileCollisionToContent(
-      collision,
-      collision.suggestedStrategy,
-      repoPaths,
-    );
-    planFiles.push(
-      ...collisionFiles.map((f) => ({ relativePath: f.relativePath, content: f.content })),
-    );
-  }
-
-  // .gitignore
-  const hasGitignoreCollision = collisions.some((c) => c.path === '.gitignore');
-  if (!hasGitignoreCollision) {
-    const gitignorePaths: string[] = [];
-    for (const r of repoPaths) {
-      const p = path.join(r.path, '.gitignore');
-      if (await pathExists(p)) {
-        gitignorePaths.push(p);
-      }
-    }
-    let gitignoreContent =
-      gitignorePaths.length > 0
-        ? await mergeGitignores(gitignorePaths)
-        : 'node_modules/\ndist/\n.DS_Store\n*.log\n';
-    const pmEntries = getGitignoreEntries(pmConfig);
-    if (pmEntries.length > 0) {
-      gitignoreContent += '\n# Package manager\n' + pmEntries.join('\n') + '\n';
-    }
-    planFiles.push({ relativePath: '.gitignore', content: gitignoreContent });
-  }
-
-  // README
-  const readmeContent = generateRootReadme(
-    repoPaths.map((r) => r.name),
-    packagesDir,
-    pmConfig,
-  );
-  planFiles.push({ relativePath: 'README.md', content: readmeContent });
-
-  // Assemble plan
-  const plan: ApplyPlan = {
-    version: 1,
-    sources: repoPaths.map((r) => ({ name: r.name, path: r.path })),
-    packagesDir,
-    rootPackageJson: workspaceConfig.rootPackageJson,
-    files: planFiles,
-    install: options.install !== false,
-    installCommand: pmConfig.installCommand,
-    analysisFindings: depAnalysis.findings,
-  };
-
-  // Write plan file
   await ensureDir(path.dirname(planFilePath));
-  await writeJson(planFilePath, plan, { spaces: 2 });
+  await writeJson(planFilePath, result.plan, { spaces: 2 });
 
   logger.success('Plan generated successfully');
-  return { planPath: planFilePath, plan };
+  return { planPath: planFilePath, plan: result.plan };
 }
 
 // ─── Apply ─────────────────────────────────────────────────────────────────
