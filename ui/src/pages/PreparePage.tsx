@@ -25,16 +25,18 @@ interface PrepareResult {
 export function PreparePage({ ws, repos, targetNodeVersion, onTargetNodeVersionChange, onComplete, onSkip }: PreparePageProps) {
   const op = useOperation(ws);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handlePrepare = async () => {
     if (repos.length === 0) return;
+    setError(null);
     setLoading(true);
     try {
       const options = targetNodeVersion ? { targetNodeVersion } : {};
       const { opId } = await postPrepare(repos, options);
       op.start(opId);
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Request failed');
+      setError(err instanceof Error ? err.message : 'Request failed');
     } finally {
       setLoading(false);
     }
@@ -72,7 +74,8 @@ export function PreparePage({ ws, repos, targetNodeVersion, onTargetNodeVersionC
 
       <LogStream logs={op.logs} />
 
-      {op.error && <div className="error-message">{op.error}</div>}
+      {error && <div className="error-message" role="alert">{error}</div>}
+      {op.error && <div className="error-message" role="alert">{op.error}</div>}
 
       {result && (
         <div>

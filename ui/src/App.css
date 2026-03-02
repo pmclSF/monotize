@@ -448,6 +448,13 @@ button.danger {
   font-size: 0.85rem;
 }
 
+.error-boundary {
+  border: 1px solid var(--error);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--error) 8%, var(--bg-card));
+  padding: 1rem;
+}
+
 /* Radio group */
 .radio-group {
   display: flex;

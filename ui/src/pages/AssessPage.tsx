@@ -46,15 +46,17 @@ interface AnalyzeResult {
 export function AssessPage({ ws, repos, onComplete, onSkip }: AssessPageProps) {
   const op = useOperation(ws);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleAnalyze = async () => {
     if (repos.length === 0) return;
+    setError(null);
     setLoading(true);
     try {
       const { opId } = await postAnalyze(repos);
       op.start(opId);
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Request failed');
+      setError(err instanceof Error ? err.message : 'Request failed');
     } finally {
       setLoading(false);
     }
@@ -82,7 +84,8 @@ export function AssessPage({ ws, repos, onComplete, onSkip }: AssessPageProps) {
 
       <LogStream logs={op.logs} />
 
-      {op.error && <div className="error-message">{op.error}</div>}
+      {error && <div className="error-message" role="alert">{error}</div>}
+      {op.error && <div className="error-message" role="alert">{op.error}</div>}
 
       {result && (
         <div>

@@ -21,7 +21,13 @@ export function LogStream({ logs }: LogStreamProps) {
   if (logs.length === 0) return null;
 
   return (
-    <div className="log-stream" ref={containerRef}>
+    <div
+      className="log-stream"
+      ref={containerRef}
+      role="log"
+      aria-live="polite"
+      aria-relevant="additions text"
+    >
       {logs.map((log, i) => (
         <div key={i} className="log-line" data-level={log.level}>
           {log.message}

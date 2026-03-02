@@ -10,6 +10,7 @@ import { MigrateBranchesPage } from './pages/MigrateBranchesPage';
 import { VerifyPage } from './pages/VerifyPage';
 import { ArchivePage } from './pages/ArchivePage';
 import { OperatePage } from './pages/OperatePage';
+import { WizardErrorBoundary } from './components/ErrorBoundary';
 
 const STEP_ORDER = [
   'assess', 'prepare', 'merge', 'configure',
@@ -192,7 +193,16 @@ export function App() {
         onStepClick={handleStepClick}
       />
       <main className="app-main">
-        {renderCurrentPage()}
+        <WizardErrorBoundary
+          onGoBack={() => {
+            const idx = STEP_ORDER.indexOf(currentStep);
+            if (idx > 0) {
+              void wizard.goToStep(STEP_ORDER[idx - 1]);
+            }
+          }}
+        >
+          {renderCurrentPage()}
+        </WizardErrorBoundary>
       </main>
     </div>
   );
