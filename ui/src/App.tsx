@@ -20,6 +20,20 @@ const STEP_ORDER = [
 export function App() {
   const ws = useWebSocket();
   const wizard = useWizardState();
+  const wsState = ws.connected
+    ? 'connected'
+    : ws.connectionFailed
+      ? 'failed'
+      : ws.reconnecting
+        ? 'reconnecting'
+        : 'disconnected';
+  const wsText = ws.connected
+    ? 'connected'
+    : ws.connectionFailed
+      ? 'connection failed'
+      : ws.reconnecting
+        ? `reconnecting (${ws.retryCount}/${ws.maxRetries})`
+        : 'disconnected';
 
   // While loading, show minimal UI
   if (wizard.loading) {
@@ -27,8 +41,16 @@ export function App() {
       <div className="app">
         <header className="app-header">
           <h1>monotize</h1>
+          <span className="ws-status" data-state={wsState} aria-live="polite">
+            {wsText}
+          </span>
         </header>
         <main className="app-main">
+          {ws.connectionFailed && (
+            <div className="error-message" role="alert">
+              Lost connection to the local server. Ensure `monorepo ui` is running, then refresh.
+            </div>
+          )}
           <p>Loading...</p>
         </main>
       </div>
@@ -41,11 +63,16 @@ export function App() {
       <div className="app">
         <header className="app-header">
           <h1>monotize</h1>
-          <span className="ws-status" data-connected={ws.connected}>
-            {ws.connected ? 'connected' : 'disconnected'}
+          <span className="ws-status" data-state={wsState} aria-live="polite">
+            {wsText}
           </span>
         </header>
         <main className="app-main">
+          {ws.connectionFailed && (
+            <div className="error-message" role="alert">
+              Lost connection to the local server. Ensure `monorepo ui` is running, then refresh.
+            </div>
+          )}
           <WizardSetup onInit={wizard.init} />
         </main>
       </div>
@@ -183,10 +210,15 @@ export function App() {
     <div className="app">
       <header className="app-header">
         <h1>monotize</h1>
-        <span className="ws-status" data-connected={ws.connected}>
-          {ws.connected ? 'connected' : 'disconnected'}
+        <span className="ws-status" data-state={wsState} aria-live="polite">
+          {wsText}
         </span>
       </header>
+      {ws.connectionFailed && (
+        <div className="error-message" role="alert">
+          Lost connection to the local server. Ensure `monorepo ui` is running, then refresh.
+        </div>
+      )}
       <WizardStepper
         steps={state.steps}
         currentStep={currentStep}

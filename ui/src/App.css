@@ -69,11 +69,19 @@ body {
   background: var(--bg-surface);
 }
 
-.ws-status[data-connected='true'] {
+.ws-status[data-state='connected'] {
   color: var(--success);
 }
 
-.ws-status[data-connected='false'] {
+.ws-status[data-state='disconnected'] {
+  color: var(--error);
+}
+
+.ws-status[data-state='reconnecting'] {
+  color: var(--warn);
+}
+
+.ws-status[data-state='failed'] {
   color: var(--error);
 }
 
