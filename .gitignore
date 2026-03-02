@@ -8,3 +8,13 @@ coverage/
 .env.local
 tests/.temp/
 tests/.test-output/
+
+# Local runtime/workspace artifacts from monotize runs
+.monotize/
+monorepo/
+/packages/
+monorepo.staging-*/
+monorepo.staging-*.ops.jsonl
+
+# Local assistant/editor state
+.claude/
