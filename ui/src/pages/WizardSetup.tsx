@@ -42,7 +42,7 @@ export function WizardSetup({ onInit }: WizardSetupProps) {
         />
       </div>
 
-      {error && <div className="error-message">{error}</div>}
+      {error && <div className="error-message" role="alert">{error}</div>}
 
       <button
         className="primary"

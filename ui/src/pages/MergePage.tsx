@@ -121,7 +121,7 @@ export function MergePage({ ws, repos, options, onPlanPathChange, onPackageNames
           </div>
 
           <LogStream logs={planOp.logs} />
-          {planOp.error && <div className="error-message">{planOp.error}</div>}
+          {planOp.error && <div className="error-message" role="alert">{planOp.error}</div>}
 
           {planResult && (
             <div>
@@ -182,7 +182,7 @@ export function MergePage({ ws, repos, options, onPlanPathChange, onPackageNames
           </div>
 
           <LogStream logs={applyOp.logs} />
-          {applyOp.error && <div className="error-message">{applyOp.error}</div>}
+          {applyOp.error && <div className="error-message" role="alert">{applyOp.error}</div>}
 
           {applyResult && (
             <div>

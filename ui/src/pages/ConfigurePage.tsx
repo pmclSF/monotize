@@ -87,7 +87,7 @@ export function ConfigurePage({ ws, options, packageNames, onComplete, onSkip }:
 
       <LogStream logs={op.logs} />
 
-      {op.error && <div className="error-message">{op.error}</div>}
+      {op.error && <div className="error-message" role="alert">{op.error}</div>}
 
       {result && (
         <div>
