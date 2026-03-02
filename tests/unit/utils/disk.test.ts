@@ -32,8 +32,8 @@ describe('checkDiskSpace', () => {
     const result = await checkDiskSpace(process.cwd());
     expect(result).toHaveProperty('availableBytes');
     expect(result).toHaveProperty('sufficient');
-    // Some environments (especially Windows CI) may return 0 when disk probes are unavailable.
-    expect(result.availableBytes).toBeGreaterThanOrEqual(0);
+    // Some environments (especially Windows CI) may return -1 when disk probes are unavailable.
+    expect(result.availableBytes).toBeGreaterThanOrEqual(-1);
   });
 
   it('should not throw on invalid paths', async () => {

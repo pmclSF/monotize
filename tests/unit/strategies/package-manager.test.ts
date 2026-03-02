@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import {
   getPackageManagerVersion,
@@ -449,12 +450,11 @@ describe('Package Manager Strategy', () => {
 
     it('should return the majority PM when mixed', async () => {
       const { pathExists } = await import('../../../src/utils/fs.js');
-      let callIndex = 0;
       vi.mocked(pathExists).mockImplementation(async (p: string) => {
         // Repo /a has pnpm, repo /b has npm, repo /c has pnpm
-        if (p === '/a/pnpm-lock.yaml') return true;
-        if (p === '/b/package-lock.json') return true;
-        if (p === '/c/pnpm-lock.yaml') return true;
+        if (path.normalize(p) === path.normalize(path.join('/a', 'pnpm-lock.yaml'))) return true;
+        if (path.normalize(p) === path.normalize(path.join('/b', 'package-lock.json'))) return true;
+        if (path.normalize(p) === path.normalize(path.join('/c', 'pnpm-lock.yaml'))) return true;
         return false;
       });
 

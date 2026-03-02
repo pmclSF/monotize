@@ -3,13 +3,48 @@ import path from 'node:path';
 import type { PackageManagerType, PackageManagerConfig } from '../types/index.js';
 import { pathExists } from '../utils/fs.js';
 
+function isMissingExecutableError(error: unknown): boolean {
+  const err = error as NodeJS.ErrnoException;
+  return err?.code === 'ENOENT' || err?.code === 'EACCES';
+}
+
+function quoteForCmd(arg: string): string {
+  if (!/[\s"]/u.test(arg)) return arg;
+  return `"${arg.replace(/"/g, '""')}"`;
+}
+
+function execPackageManager(
+  command: string,
+  args: string[],
+  options: { encoding: 'utf-8' } | { stdio: 'pipe' },
+): string {
+  try {
+    return execFileSync(command, args, options).toString();
+  } catch (error) {
+    if (process.platform !== 'win32' || !isMissingExecutableError(error)) {
+      throw error;
+    }
+
+    try {
+      return execFileSync(`${command}.cmd`, args, options).toString();
+    } catch (cmdExtError) {
+      if (!isMissingExecutableError(cmdExtError)) {
+        throw cmdExtError;
+      }
+
+      const commandLine = [command, ...args].map(quoteForCmd).join(' ');
+      return execFileSync('cmd.exe', ['/d', '/s', '/c', commandLine], options).toString();
+    }
+  }
+}
+
 /**
  * Get the installed version of a package manager
  */
 export function getPackageManagerVersion(pm: PackageManagerType): string {
   const command = pm === 'yarn-berry' ? 'yarn' : pm;
   try {
-    const version = execFileSync(command, ['--version'], { encoding: 'utf-8' }).trim();
+    const version = execPackageManager(command, ['--version'], { encoding: 'utf-8' }).trim();
     return version;
   } catch {
     // Default fallback versions
@@ -32,7 +67,7 @@ export function getPackageManagerVersion(pm: PackageManagerType): string {
 export function isPackageManagerInstalled(pm: PackageManagerType): boolean {
   const command = pm === 'yarn-berry' ? 'yarn' : pm;
   try {
-    execFileSync(command, ['--version'], { stdio: 'pipe' });
+    execPackageManager(command, ['--version'], { stdio: 'pipe' });
     return true;
   } catch {
     return false;
@@ -75,7 +110,7 @@ export async function isYarnBerry(dirPath?: string): Promise<boolean> {
 
   // Check yarn version
   try {
-    const version = execFileSync('yarn', ['--version'], { encoding: 'utf-8' }).trim();
+    const version = execPackageManager('yarn', ['--version'], { encoding: 'utf-8' }).trim();
     const majorVersion = parseInt(version.split('.')[0], 10);
     return majorVersion >= 2;
   } catch {
