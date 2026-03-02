@@ -20,12 +20,16 @@ export interface VerifyContext {
   dir: string | null;
 }
 
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 /** Read PackageInfo[] from a monorepo directory's packages/ subfolder. */
-async function readPackagesFromDir(dir: string): Promise<PackageInfo[]> {
+async function readPackagesFromDir(dir: string, parseErrors?: string[]): Promise<PackageInfo[]> {
   const packagesDir = path.join(dir, 'packages');
   if (!(await pathExists(packagesDir))) return [];
 
@@ -47,8 +51,8 @@ async function readPackagesFromDir(dir: string): Promise<PackageInfo[]> {
         path: path.join(packagesDir, name),
         repoName: name,
       });
-    } catch (_err) {
-      // skip malformed package.json
+    } catch (error) {
+      parseErrors?.push(`Failed to read ${pkgJsonPath}: ${getErrorMessage(error)}`);
     }
   }
   return packages;
@@ -57,7 +61,7 @@ async function readPackagesFromDir(dir: string): Promise<PackageInfo[]> {
 /** Build PackageInfo[] from plan sources.
  *  First tries reading package.json from the source path on disk.
  *  Falls back to checking plan.files for packages/<name>/package.json entries. */
-async function packagesFromPlan(plan: ApplyPlan): Promise<PackageInfo[]> {
+async function packagesFromPlan(plan: ApplyPlan, parseErrors?: string[]): Promise<PackageInfo[]> {
   const packages: PackageInfo[] = [];
   for (const source of plan.sources) {
     let pkgJson: Record<string, unknown> | null = null;
@@ -67,7 +71,9 @@ async function packagesFromPlan(plan: ApplyPlan): Promise<PackageInfo[]> {
     if (await pathExists(pkgJsonPath)) {
       try {
         pkgJson = await readJson<Record<string, unknown>>(pkgJsonPath);
-      } catch (_err) { /* fall through */ }
+      } catch (error) {
+        parseErrors?.push(`Failed to read ${pkgJsonPath}: ${getErrorMessage(error)}`);
+      }
     }
 
     // Fallback: check plan.files for an inline package.json
@@ -79,7 +85,9 @@ async function packagesFromPlan(plan: ApplyPlan): Promise<PackageInfo[]> {
       if (pkgFile) {
         try {
           pkgJson = JSON.parse(pkgFile.content) as Record<string, unknown>;
-        } catch (_err) { /* skip malformed inline package.json */ }
+        } catch (error) {
+          parseErrors?.push(`Failed to parse ${pkgFile.relativePath}: ${getErrorMessage(error)}`);
+        }
       }
     }
 
@@ -100,9 +108,9 @@ async function packagesFromPlan(plan: ApplyPlan): Promise<PackageInfo[]> {
 }
 
 /** Get packages for the current context. */
-async function getPackages(ctx: VerifyContext): Promise<PackageInfo[]> {
-  if (ctx.plan) return packagesFromPlan(ctx.plan);
-  if (ctx.dir) return readPackagesFromDir(ctx.dir);
+async function getPackages(ctx: VerifyContext, parseErrors?: string[]): Promise<PackageInfo[]> {
+  if (ctx.plan) return packagesFromPlan(ctx.plan, parseErrors);
+  if (ctx.dir) return readPackagesFromDir(ctx.dir, parseErrors);
   return [];
 }
 
@@ -187,15 +195,35 @@ export async function checkWorkspaceConfig(ctx: VerifyContext): Promise<VerifyCh
   if (ctx.dir) {
     const hasPnpmWs = await pathExists(path.join(ctx.dir, 'pnpm-workspace.yaml'));
     let hasWorkspacesField = false;
+    let rootReadError: string | null = null;
     try {
       const root = await readJson<Record<string, unknown>>(path.join(ctx.dir, 'package.json'));
       hasWorkspacesField = root.workspaces !== undefined;
-    } catch (_err) { /* could not read package.json for workspaces check */ }
+    } catch (error) {
+      rootReadError = getErrorMessage(error);
+    }
+
+    const checks: VerifyCheck[] = [];
 
     if (hasPnpmWs || hasWorkspacesField) {
-      return [check('workspace-config', 'Workspace configuration found', 'pass', 'static', 'files[pnpm-workspace.yaml]')];
+      checks.push(check('workspace-config', 'Workspace configuration found', 'pass', 'static', 'files[pnpm-workspace.yaml]'));
+    } else {
+      checks.push(check('workspace-config', 'No workspace configuration found', 'fail', 'static', 'files[pnpm-workspace.yaml]'));
     }
-    return [check('workspace-config', 'No workspace configuration found', 'fail', 'static', 'files[pnpm-workspace.yaml]')];
+
+    if (rootReadError) {
+      checks.push(
+        check(
+          'workspace-config:root-package-json',
+          'Could not read root package.json while checking workspace configuration',
+          'fail',
+          'static',
+          'rootPackageJson.workspaces',
+          rootReadError
+        )
+      );
+    }
+    return checks;
   }
 
   return [];
@@ -203,10 +231,23 @@ export async function checkWorkspaceConfig(ctx: VerifyContext): Promise<VerifyCh
 
 export async function checkPackageNames(ctx: VerifyContext): Promise<VerifyCheck[]> {
   const checks: VerifyCheck[] = [];
-  const packages = await getPackages(ctx);
+  const parseErrors: string[] = [];
+  const packages = await getPackages(ctx, parseErrors);
+
+  for (const [index, details] of parseErrors.entries()) {
+    checks.push(check(
+      `pkg-read-error:${index}`,
+      'Failed to read one or more package.json files',
+      'fail',
+      'static',
+      undefined,
+      details
+    ));
+  }
 
   if (packages.length === 0) {
-    checks.push(check('pkg-names', 'No packages found', 'warn', 'static'));
+    const status: VerifyCheck['status'] = parseErrors.length > 0 ? 'fail' : 'warn';
+    checks.push(check('pkg-names', 'No packages found', status, 'static'));
     return checks;
   }
 
@@ -366,20 +407,36 @@ export async function checkRequiredFields(ctx: VerifyContext): Promise<VerifyChe
 
   // Check root has engines
   let hasEngines = false;
+  let rootReadError: string | null = null;
   if (ctx.plan) {
     hasEngines = ctx.plan.rootPackageJson.engines !== undefined;
   } else if (ctx.dir) {
     try {
       const root = await readJson<Record<string, unknown>>(path.join(ctx.dir, 'package.json'));
       hasEngines = root.engines !== undefined;
-    } catch (_err) { /* could not read package.json for engines check */ }
+    } catch (error) {
+      rootReadError = getErrorMessage(error);
+    }
   }
 
-  checks.push(
-    hasEngines
-      ? check('root-engines', 'Root package.json has engines field', 'pass', 'static', 'rootPackageJson.engines')
-      : check('root-engines', 'Root package.json missing engines field', 'warn', 'static', 'rootPackageJson.engines')
-  );
+  if (rootReadError) {
+    checks.push(
+      check(
+        'root-engines',
+        'Could not read root package.json for engines field check',
+        'fail',
+        'static',
+        'rootPackageJson.engines',
+        rootReadError
+      )
+    );
+  } else {
+    checks.push(
+      hasEngines
+        ? check('root-engines', 'Root package.json has engines field', 'pass', 'static', 'rootPackageJson.engines')
+        : check('root-engines', 'Root package.json missing engines field', 'warn', 'static', 'rootPackageJson.engines')
+    );
+  }
 
   return checks;
 }
