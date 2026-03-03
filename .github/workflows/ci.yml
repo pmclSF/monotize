@@ -49,13 +49,43 @@ jobs:
           done
           echo "No sensitive files found"
 
-  test:
-    name: Test (Node ${{ matrix.node-version }})
+  dependency-freshness:
+    name: Dependency Freshness
     runs-on: ubuntu-latest
     needs: safety-check
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Report outdated dependencies
+        run: |
+          if ! pnpm outdated; then
+            echo "::notice::Outdated dependencies detected. See log above."
+          fi
+
+  test:
+    name: Test (Node ${{ matrix.node-version }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    needs: [safety-check, dependency-freshness]
     strategy:
       matrix:
         node-version: [18, 20, 22]
+        os: [ubuntu-latest, macos-latest, windows-latest]
       fail-fast: false
 
     steps:
@@ -78,6 +108,11 @@ jobs:
 
       - name: Build
         run: pnpm build
+
+      - name: CLI smoke test
+        run: |
+          node dist/index.js --version
+          node dist/index.js merge --help
 
       - name: Type check
         run: pnpm typecheck
@@ -336,3 +371,43 @@ jobs:
           fi
           echo "History preserved successfully with $COMMIT_COUNT commits"
         timeout-minutes: 5
+
+  smoke-test:
+    name: Publish Smoke Test
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Verify built CLI works
+        run: |
+          node dist/index.js --version
+          node dist/index.js merge --help
+
+      - name: Type-check tests
+        run: pnpm tsc -p tests/tsconfig.json --noEmit
+
+      - name: Publish dry run
+        run: |
+          npm pack --dry-run 2>&1 | tee pack-output.txt
+          echo "--- Package contents ---"
+          cat pack-output.txt

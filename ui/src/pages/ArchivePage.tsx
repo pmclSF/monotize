@@ -49,7 +49,7 @@ export function ArchivePage({ repos, onComplete, onSkip }: ArchivePageProps) {
         <SkipButton stepId="archive" onSkip={onSkip} />
       </div>
 
-      {error && <div className="error-message">{error}</div>}
+      {error && <div className="error-message" role="alert">{error}</div>}
 
       {result && (
         <div>

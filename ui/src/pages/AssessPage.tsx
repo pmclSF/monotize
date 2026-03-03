@@ -6,6 +6,8 @@ import { CliHint } from '../components/CliHint';
 import { LogStream } from '../components/LogStream';
 import { ExportButton } from '../components/ExportButton';
 import { SkipButton } from '../components/SkipButton';
+import { FindingsFilter } from '../components/FindingsFilter';
+import { SeverityBadge } from '../components/SeverityBadge';
 
 interface AssessPageProps {
   ws: UseWebSocketReturn;
@@ -14,26 +16,47 @@ interface AssessPageProps {
   onSkip: (stepId: string, rationale: string) => void;
 }
 
+interface ExtendedFinding {
+  id: string;
+  title: string;
+  severity: 'info' | 'warn' | 'error' | 'critical';
+  suggestedAction?: string;
+}
+
+interface ExtendedAnalysis {
+  environment?: ExtendedFinding[];
+  tooling?: ExtendedFinding[];
+  ci?: ExtendedFinding[];
+  publishing?: ExtendedFinding[];
+  repoRisks?: ExtendedFinding[];
+  riskSummary?: {
+    classification: string;
+  };
+}
+
 interface AnalyzeResult {
   packages: Array<{ name: string; version: string; repoName: string }>;
   conflicts: Array<{ name: string; severity: string }>;
   collisions: Array<{ path: string; sources: string[] }>;
   complexityScore: number;
   recommendations: string[];
+  extendedAnalysis?: ExtendedAnalysis;
 }
 
 export function AssessPage({ ws, repos, onComplete, onSkip }: AssessPageProps) {
   const op = useOperation(ws);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleAnalyze = async () => {
     if (repos.length === 0) return;
+    setError(null);
     setLoading(true);
     try {
       const { opId } = await postAnalyze(repos);
       op.start(opId);
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Request failed');
+      setError(err instanceof Error ? err.message : 'Request failed');
     } finally {
       setLoading(false);
     }
@@ -61,7 +84,8 @@ export function AssessPage({ ws, repos, onComplete, onSkip }: AssessPageProps) {
 
       <LogStream logs={op.logs} />
 
-      {op.error && <div className="error-message">{op.error}</div>}
+      {error && <div className="error-message" role="alert">{error}</div>}
+      {op.error && <div className="error-message" role="alert">{op.error}</div>}
 
       {result && (
         <div>
@@ -108,6 +132,39 @@ export function AssessPage({ ws, repos, onComplete, onSkip }: AssessPageProps) {
               <h3>Recommendations</h3>
               <ul>{result.recommendations.map((r, i) => <li key={i}>{r}</li>)}</ul>
             </>
+          )}
+
+          {/* Extended Analysis */}
+          {result?.extendedAnalysis && (
+            <div>
+              <h3>Extended Analysis</h3>
+              {[
+                { label: 'Environment', findings: result.extendedAnalysis.environment },
+                { label: 'Tooling', findings: result.extendedAnalysis.tooling },
+                { label: 'CI/CD', findings: result.extendedAnalysis.ci },
+                { label: 'Publishing', findings: result.extendedAnalysis.publishing },
+                { label: 'Repo Risks', findings: result.extendedAnalysis.repoRisks },
+              ].filter(s => s.findings && s.findings.length > 0).map(section => (
+                <div key={section.label}>
+                  <h4>{section.label}</h4>
+                  <FindingsFilter findings={section.findings!} />
+                </div>
+              ))}
+
+              {result.extendedAnalysis.riskSummary && (
+                <div>
+                  <h4>Risk Classification</h4>
+                  <SeverityBadge severity={
+                    result.extendedAnalysis.riskSummary.classification === 'complex' ? 'error'
+                    : result.extendedAnalysis.riskSummary.classification === 'needs-decisions' ? 'warn'
+                    : 'info'
+                  } />
+                  <span style={{ marginLeft: 8 }}>
+                    {result.extendedAnalysis.riskSummary.classification}
+                  </span>
+                </div>
+              )}
+            </div>
           )}
 
           <button className="primary" onClick={onComplete} style={{ marginTop: '1rem' }}>

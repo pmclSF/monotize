@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { describe, it, expect } from 'vitest';
 import { parseRepoSource, validateRepoSources, isValidPackageName, sanitizePackageName } from '../../src/utils/validation.js';
 
@@ -38,10 +39,11 @@ describe('parseRepoSource', () => {
   });
 
   it('should parse absolute local paths', () => {
-    const result = parseRepoSource('/Users/test/my-repo');
+    const absoluteInput = '/Users/test/my-repo';
+    const result = parseRepoSource(absoluteInput);
     expect(result.type).toBe('local');
     expect(result.name).toBe('my-repo');
-    expect(result.resolved).toBe('/Users/test/my-repo');
+    expect(result.resolved).toBe(path.resolve(absoluteInput));
   });
 
   it('should handle repos with .git suffix', () => {

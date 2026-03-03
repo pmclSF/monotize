@@ -1,4 +1,5 @@
 import path from 'node:path';
+import semver from 'semver';
 import type {
   PackageInfo,
   DependencyConflict,
@@ -48,7 +49,8 @@ export function isWildcardVersion(version: string): boolean {
 }
 
 /**
- * Parse a semver version string into components
+ * Parse a semver version string into components.
+ * Strips range operators (^, ~, >=, etc.) and extracts the base version.
  */
 export function parseSemver(version: string): { major: number; minor: number; patch: number; prerelease?: string } | null {
   // Skip non-semver versions
@@ -61,26 +63,53 @@ export function parseSemver(version: string): { major: number; minor: number; pa
     return null;
   }
 
-  // Remove leading ^, ~, =, >=, <=, <, >
-  const cleaned = version.replace(/^[\^~=><]+/, '').replace(/^>=|<=|>|</, '');
+  const trimmed = version.trim();
 
-  // Handle range patterns - take the first version in the range
-  const firstVersion = cleaned.split(/\s+/)[0];
+  try {
+    // 1) Exact semver
+    const exact = semver.valid(trimmed, { loose: true });
+    const parsed = exact ? semver.parse(exact, { loose: true }) : null;
+    if (parsed) {
+      return {
+        major: parsed.major,
+        minor: parsed.minor,
+        patch: parsed.patch,
+        prerelease: parsed.prerelease.length ? parsed.prerelease.join('.') : undefined,
+      };
+    }
 
-  // Standard semver pattern with optional pre-release
-  const match = firstVersion.match(/^(\d+)\.(\d+)\.(\d+)(?:-([a-zA-Z0-9.+-]+))?/);
-  if (!match) return null;
+    // 2) Range -> use minimal satisfying version as canonical representative
+    const validRange = semver.validRange(trimmed, { loose: true });
+    if (validRange) {
+      const min = semver.minVersion(validRange, { loose: true });
+      if (min) {
+        return {
+          major: min.major,
+          minor: min.minor,
+          patch: min.patch,
+          prerelease: min.prerelease.length ? min.prerelease.join('.') : undefined,
+        };
+      }
+    }
 
-  return {
-    major: parseInt(match[1], 10),
-    minor: parseInt(match[2], 10),
-    patch: parseInt(match[3], 10),
-    prerelease: match[4],
-  };
+    // 3) Loose/coercible forms
+    const coerced = semver.coerce(trimmed, { loose: true });
+    if (coerced) {
+      return {
+        major: coerced.major,
+        minor: coerced.minor,
+        patch: coerced.patch,
+      };
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
 }
 
 /**
- * Compare two semver versions
+ * Compare two semver versions using the semver package.
  * Returns: -1 if a < b, 0 if a == b, 1 if a > b
  */
 function compareSemver(a: string, b: string): number {
@@ -94,25 +123,9 @@ function compareSemver(a: string, b: string): number {
   if (!parsedA) return -1; // Non-semver goes first (lower priority)
   if (!parsedB) return 1;
 
-  // Compare major.minor.patch
-  if (parsedA.major !== parsedB.major) {
-    return parsedA.major - parsedB.major;
-  }
-  if (parsedA.minor !== parsedB.minor) {
-    return parsedA.minor - parsedB.minor;
-  }
-  if (parsedA.patch !== parsedB.patch) {
-    return parsedA.patch - parsedB.patch;
-  }
-
-  // Handle pre-release (versions without pre-release are higher)
-  if (parsedA.prerelease && !parsedB.prerelease) return -1;
-  if (!parsedA.prerelease && parsedB.prerelease) return 1;
-  if (parsedA.prerelease && parsedB.prerelease) {
-    return parsedA.prerelease.localeCompare(parsedB.prerelease);
-  }
-
-  return 0;
+  const verA = `${parsedA.major}.${parsedA.minor}.${parsedA.patch}${parsedA.prerelease ? `-${parsedA.prerelease}` : ''}`;
+  const verB = `${parsedB.major}.${parsedB.minor}.${parsedB.patch}${parsedB.prerelease ? `-${parsedB.prerelease}` : ''}`;
+  return semver.compare(verA, verB);
 }
 
 /**
@@ -145,7 +158,11 @@ function determineConflictSeverity(versions: string[]): ConflictSeverity {
 /**
  * Read package.json from a directory
  */
-async function readPackageJson(repoPath: string, repoName: string): Promise<PackageInfo | null> {
+async function readPackageJson(
+  repoPath: string,
+  repoName: string,
+  warnings: DependencyWarning[]
+): Promise<PackageInfo | null> {
   const packageJsonPath = path.join(repoPath, 'package.json');
 
   if (!(await pathExists(packageJsonPath))) {
@@ -165,8 +182,14 @@ async function readPackageJson(repoPath: string, repoName: string): Promise<Pack
       path: repoPath,
       repoName,
     };
-  } catch {
-    // Malformed JSON or read error
+  } catch (error) {
+    warnings.push({
+      name: 'package.json',
+      version: 'invalid',
+      source: repoName,
+      type: 'parse-error',
+      message: `Failed to read ${packageJsonPath}: ${getErrorMessage(error)}`,
+    });
     return null;
   }
 }
@@ -174,11 +197,15 @@ async function readPackageJson(repoPath: string, repoName: string): Promise<Pack
 /**
  * Find all package.json files in a repository (including nested workspaces)
  */
-async function findPackages(repoPath: string, repoName: string): Promise<PackageInfo[]> {
+async function findPackages(
+  repoPath: string,
+  repoName: string,
+  warnings: DependencyWarning[]
+): Promise<PackageInfo[]> {
   const packages: PackageInfo[] = [];
 
   // First, read the root package.json
-  const rootPkg = await readPackageJson(repoPath, repoName);
+  const rootPkg = await readPackageJson(repoPath, repoName, warnings);
   if (rootPkg) {
     packages.push(rootPkg);
   }
@@ -193,8 +220,12 @@ export interface DependencyWarning {
   name: string;
   version: string;
   source: string;
-  type: 'git' | 'file' | 'url' | 'wildcard' | 'prerelease';
+  type: 'git' | 'file' | 'url' | 'wildcard' | 'prerelease' | 'parse-error';
   message: string;
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 /**
@@ -250,14 +281,24 @@ export async function analyzeDependencies(
 
   // Collect all packages from all repos
   for (const repo of repoPaths) {
-    const packages = await findPackages(repo.path, repo.name);
+    const packages = await findPackages(repo.path, repo.name, warnings);
     allPackages.push(...packages);
   }
 
   // Parse lockfiles for each repo
   const lockfileResolutions: LockfileResolution[] = [];
   for (const repo of repoPaths) {
-    const resolution = await parseLockfile(repo.path, repo.name);
+    const resolution = await parseLockfile(repo.path, repo.name, {
+      onParseWarning: (message) => {
+        warnings.push({
+          name: 'lockfile',
+          version: 'invalid',
+          source: repo.name,
+          type: 'parse-error',
+          message,
+        });
+      },
+    });
     if (resolution) {
       lockfileResolutions.push(resolution);
     }

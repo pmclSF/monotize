@@ -1,91 +1,50 @@
+import semver from 'semver';
 import type {
   PackageInfo,
   DependencyConflict,
   LockfileResolution,
   ConfidenceLevel,
 } from '../types/index.js';
-import { parseSemver } from './dependencies.js';
+import { getHighestVersion } from './dependencies.js';
 
-/**
- * Basic semver range satisfaction check.
- * Supports ^, ~, >=, exact match. Complex ranges (||, -) return false.
- */
-export function satisfiesRange(version: string, range: string): boolean {
-  const trimmed = range.trim();
+function normalizeToSemver(version: string): string | null {
+  try {
+    const exact = semver.valid(version, { loose: true });
+    if (exact) return exact;
 
-  // Complex ranges — cannot reliably check
-  if (trimmed.includes('||') || trimmed.includes(' - ')) {
-    return false;
-  }
-
-  const parsed = parseSemver(version);
-  if (!parsed) return false;
-
-  // Exact match
-  if (/^\d+\.\d+\.\d+/.test(trimmed)) {
-    const rangeParsed = parseSemver(trimmed);
-    if (!rangeParsed) return false;
-    return (
-      parsed.major === rangeParsed.major &&
-      parsed.minor === rangeParsed.minor &&
-      parsed.patch === rangeParsed.patch
-    );
-  }
-
-  // Caret range: ^major.minor.patch — compatible with major
-  if (trimmed.startsWith('^')) {
-    const rangeParsed = parseSemver(trimmed);
-    if (!rangeParsed) return false;
-
-    if (rangeParsed.major > 0) {
-      // ^1.2.3 means >=1.2.3 <2.0.0
-      if (parsed.major !== rangeParsed.major) return false;
-      if (parsed.minor < rangeParsed.minor) return false;
-      if (parsed.minor === rangeParsed.minor && parsed.patch < rangeParsed.patch) return false;
-      return true;
+    const validRange = semver.validRange(version, { loose: true });
+    if (validRange) {
+      const min = semver.minVersion(validRange, { loose: true });
+      if (min) return min.version;
     }
-    // ^0.x — compatible with minor
-    if (parsed.major !== 0) return false;
-    if (parsed.minor !== rangeParsed.minor) return false;
-    if (parsed.patch < rangeParsed.patch) return false;
-    return true;
+
+    const coerced = semver.coerce(version, { loose: true });
+    if (coerced) return coerced.version;
+  } catch {
+    return null;
   }
 
-  // Tilde range: ~major.minor.patch — compatible with minor
-  if (trimmed.startsWith('~')) {
-    const rangeParsed = parseSemver(trimmed);
-    if (!rangeParsed) return false;
-    if (parsed.major !== rangeParsed.major) return false;
-    if (parsed.minor !== rangeParsed.minor) return false;
-    if (parsed.patch < rangeParsed.patch) return false;
-    return true;
-  }
-
-  // >= range
-  if (trimmed.startsWith('>=')) {
-    const rangeParsed = parseSemver(trimmed);
-    if (!rangeParsed) return false;
-    if (parsed.major > rangeParsed.major) return true;
-    if (parsed.major < rangeParsed.major) return false;
-    if (parsed.minor > rangeParsed.minor) return true;
-    if (parsed.minor < rangeParsed.minor) return false;
-    return parsed.patch >= rangeParsed.patch;
-  }
-
-  return false;
+  return null;
 }
 
 /**
- * Check if a range is "complex" — contains || or hyphen ranges.
+ * Semver range satisfaction check using the semver package.
+ * Handles all range types including complex ranges (||, hyphen, etc.).
  */
-function isComplexRange(range: string): boolean {
-  return range.includes('||') || range.includes(' - ');
+export function satisfiesRange(version: string, range: string): boolean {
+  const cleanVersion = normalizeToSemver(version);
+  if (!cleanVersion) return false;
+
+  try {
+    return semver.satisfies(cleanVersion, range, { includePrerelease: true, loose: true });
+  } catch {
+    return false;
+  }
 }
 
 /**
  * Check if peerDep ranges are satisfied by available dependency versions.
- * Returns conflicts with confidence 'medium' (or 'low' for complex ranges),
- * conflictSource 'peer-constraint'.
+ * Returns conflicts with confidence 'high', conflictSource 'peer-constraint'.
  */
 export function analyzePeerDependencies(
   packages: PackageInfo[],
@@ -129,44 +88,19 @@ export function analyzePeerDependencies(
       if (!bestVersion) {
         const versions = declaredVersions.get(peerDepName);
         if (versions && versions.length > 0) {
-          // Use the first declared version (stripped of range prefixes) as approximation
-          const parsed = parseSemver(versions[0]);
-          if (parsed) {
-            bestVersion = `${parsed.major}.${parsed.minor}.${parsed.patch}`;
-          }
+          const bestDeclared = getHighestVersion(versions);
+          const normalized = normalizeToSemver(bestDeclared);
+          if (normalized) bestVersion = normalized;
         }
       }
 
       // If no version found at all, skip (can't validate)
       if (!bestVersion) continue;
 
-      const complex = isComplexRange(peerRange);
-      const confidence: ConfidenceLevel = complex ? 'low' : 'medium';
+      // semver.satisfies handles all range types (^, ~, ||, hyphen, etc.)
+      // Use 'high' confidence since the semver package is authoritative
+      const confidence: ConfidenceLevel = 'high';
 
-      // For complex ranges, we can't reliably check, so report with low confidence
-      if (complex) {
-        conflicts.push({
-          name: peerDepName,
-          versions: [
-            {
-              version: peerRange,
-              source: `${pkg.repoName} (peer)`,
-              type: 'peerDependencies',
-            },
-            {
-              version: bestVersion,
-              source: 'available',
-              type: 'dependencies',
-            },
-          ],
-          severity: 'major',
-          confidence,
-          conflictSource: 'peer-constraint',
-        });
-        continue;
-      }
-
-      // Check satisfaction
       if (!satisfiesRange(bestVersion, peerRange)) {
         conflicts.push({
           name: peerDepName,

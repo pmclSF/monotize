@@ -3,13 +3,46 @@ import path from 'node:path';
 import type { PackageManagerType, PackageManagerConfig } from '../types/index.js';
 import { pathExists } from '../utils/fs.js';
 
+function quoteForCmd(arg: string): string {
+  if (!/[\s"]/u.test(arg)) return arg;
+  return `"${arg.replace(/"/g, '""')}"`;
+}
+
+function execPackageManager(
+  command: string,
+  args: string[],
+  options: { encoding: 'utf-8' } | { stdio: 'pipe' },
+): string {
+  if (process.platform !== 'win32') {
+    return execFileSync(command, args, options).toString();
+  }
+
+  const commandLine = [command, ...args].map(quoteForCmd).join(' ');
+  const attempts: Array<{ cmd: string; args: string[] }> = [
+    { cmd: command, args },
+    { cmd: `${command}.cmd`, args },
+    { cmd: 'cmd.exe', args: ['/d', '/s', '/c', commandLine] },
+  ];
+
+  let lastError: unknown;
+  for (const attempt of attempts) {
+    try {
+      return execFileSync(attempt.cmd, attempt.args, options).toString();
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError;
+}
+
 /**
  * Get the installed version of a package manager
  */
 export function getPackageManagerVersion(pm: PackageManagerType): string {
   const command = pm === 'yarn-berry' ? 'yarn' : pm;
   try {
-    const version = execFileSync(command, ['--version'], { encoding: 'utf-8' }).trim();
+    const version = execPackageManager(command, ['--version'], { encoding: 'utf-8' }).trim();
     return version;
   } catch {
     // Default fallback versions
@@ -32,7 +65,7 @@ export function getPackageManagerVersion(pm: PackageManagerType): string {
 export function isPackageManagerInstalled(pm: PackageManagerType): boolean {
   const command = pm === 'yarn-berry' ? 'yarn' : pm;
   try {
-    execFileSync(command, ['--version'], { stdio: 'pipe' });
+    execPackageManager(command, ['--version'], { stdio: 'pipe' });
     return true;
   } catch {
     return false;
@@ -75,7 +108,7 @@ export async function isYarnBerry(dirPath?: string): Promise<boolean> {
 
   // Check yarn version
   try {
-    const version = execFileSync('yarn', ['--version'], { encoding: 'utf-8' }).trim();
+    const version = execPackageManager('yarn', ['--version'], { encoding: 'utf-8' }).trim();
     const majorVersion = parseInt(version.split('.')[0], 10);
     return majorVersion >= 2;
   } catch {
@@ -269,6 +302,13 @@ export function getPackageManagerField(pm: PackageManagerConfig): string {
  * Parse package manager type from CLI input
  */
 export function parsePackageManagerType(input: string): PackageManagerType {
+  return tryParsePackageManagerType(input) ?? 'pnpm';
+}
+
+/**
+ * Parse package manager type from CLI input, returning null for invalid values.
+ */
+export function tryParsePackageManagerType(input: string): PackageManagerType | null {
   const normalized = input.toLowerCase().trim();
 
   switch (normalized) {
@@ -284,7 +324,7 @@ export function parsePackageManagerType(input: string): PackageManagerType {
     case 'npm':
       return 'npm';
     default:
-      return 'pnpm'; // Default to pnpm
+      return null;
   }
 }
 

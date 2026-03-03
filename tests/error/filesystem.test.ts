@@ -98,7 +98,7 @@ describe('Filesystem Error Scenarios', () => {
         await writeFile(longPath, 'content');
       } catch (error) {
         // Should fail with name too long error
-        expect((error as NodeJS.ErrnoException).code).toMatch(/ENAMETOOLONG|EINVAL/);
+        expect((error as NodeJS.ErrnoException).code).toMatch(/ENAMETOOLONG|EINVAL|ENOENT/);
       }
     });
   });

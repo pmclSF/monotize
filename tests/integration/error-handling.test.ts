@@ -37,6 +37,7 @@ describe('Error Handling Integration', () => {
       // Should still return results for valid packages
       expect(result.packages).toHaveLength(1);
       expect(result.packages[0].name).toBe('valid-pkg');
+      expect(result.warnings?.some((w) => w.type === 'parse-error' && w.source === 'malformed')).toBe(true);
     });
 
     it('should handle missing package.json gracefully', async () => {
@@ -127,6 +128,7 @@ describe('Error Handling Integration', () => {
 
       // Should have 2 packages (valid has deps, empty has no deps but valid JSON)
       expect(result.packages.length).toBeGreaterThanOrEqual(1);
+      expect(result.warnings?.some((w) => w.type === 'parse-error' && w.source === 'malformed')).toBe(true);
     });
   });
 

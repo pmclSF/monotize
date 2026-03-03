@@ -69,11 +69,19 @@ body {
   background: var(--bg-surface);
 }
 
-.ws-status[data-connected='true'] {
+.ws-status[data-state='connected'] {
   color: var(--success);
 }
 
-.ws-status[data-connected='false'] {
+.ws-status[data-state='disconnected'] {
+  color: var(--error);
+}
+
+.ws-status[data-state='reconnecting'] {
+  color: var(--warn);
+}
+
+.ws-status[data-state='failed'] {
   color: var(--error);
 }
 
@@ -446,6 +454,13 @@ button.danger {
   border: 1px solid var(--error);
   border-radius: 4px;
   font-size: 0.85rem;
+}
+
+.error-boundary {
+  border: 1px solid var(--error);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--error) 8%, var(--bg-card));
+  padding: 1rem;
 }
 
 /* Radio group */

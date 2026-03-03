@@ -34,7 +34,6 @@ jobs:
 
       - name: Run pnpm audit
         run: pnpm audit --audit-level=high
-        continue-on-error: true
 
   codeql:
     name: CodeQL Analysis
@@ -113,4 +112,4 @@ jobs:
     with:
       scan-args: |-
         --lockfile=pnpm-lock.yaml
-      fail-on-vuln: false
+      fail-on-vuln: true

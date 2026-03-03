@@ -5,6 +5,7 @@ import os from 'node:os';
 import crypto from 'node:crypto';
 import {
   mergeWorkflows,
+  mergeWorkflowsToFiles,
   analyzeWorkflows,
 } from '../../../src/strategies/workflow-merge.js';
 
@@ -94,6 +95,71 @@ jobs:
 
       expect(result.totalWorkflows).toBe(0);
       expect(result.workflowsByRepo['no-workflow']).toEqual([]);
+    });
+
+    it('should detect array triggers (on: [push, pull_request])', async () => {
+      const repo = await createRepoWithWorkflow(
+        'repo-array-trigger',
+        `name: CI
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+`
+      );
+
+      const result = await analyzeWorkflows([{ path: repo, name: 'repo-array-trigger' }]);
+
+      expect(result.commonTriggers).toContain('push');
+      expect(result.commonTriggers).toContain('pull_request');
+    });
+
+    it('should detect string trigger (on: push)', async () => {
+      const repo = await createRepoWithWorkflow(
+        'repo-string-trigger',
+        `name: CI
+on: push
+jobs:
+  test:
+    runs-on: ubuntu-latest
+`
+      );
+
+      const result = await analyzeWorkflows([{ path: repo, name: 'repo-string-trigger' }]);
+
+      expect(result.commonTriggers).toContain('push');
+    });
+
+    it('should handle malformed YAML gracefully', async () => {
+      const repoPath = path.join(tempDir, 'repo-malformed-yaml');
+      const workflowDir = path.join(repoPath, '.github', 'workflows');
+      await fs.ensureDir(workflowDir);
+      await fs.writeFile(path.join(workflowDir, 'ci.yml'), ': : : invalid yaml {{{');
+
+      const result = await analyzeWorkflows([{ path: repoPath, name: 'repo-malformed-yaml' }]);
+
+      expect(result.totalWorkflows).toBe(1);
+      expect(result.workflowsByRepo['repo-malformed-yaml']).toContain('ci.yml');
+    });
+
+    it('should not report conflicts when filenames differ', async () => {
+      const repo1Path = path.join(tempDir, 'repo-diff1');
+      const wf1 = path.join(repo1Path, '.github', 'workflows');
+      await fs.ensureDir(wf1);
+      await fs.writeFile(path.join(wf1, 'build.yml'), 'name: Build\non: push');
+
+      const repo2Path = path.join(tempDir, 'repo-diff2');
+      const wf2 = path.join(repo2Path, '.github', 'workflows');
+      await fs.ensureDir(wf2);
+      await fs.writeFile(path.join(wf2, 'test.yml'), 'name: Test\non: push');
+
+      const result = await analyzeWorkflows([
+        { path: repo1Path, name: 'repo-diff1' },
+        { path: repo2Path, name: 'repo-diff2' },
+      ]);
+
+      expect(result.conflicts).toEqual([]);
+      expect(result.totalWorkflows).toBe(2);
     });
   });
 
@@ -268,6 +334,223 @@ jobs:
 
       const workflowDir = path.join(outputDir, '.github', 'workflows');
       expect(await fs.pathExists(workflowDir)).toBe(false);
+    });
+
+    it('should merge env vars from multiple workflows', async () => {
+      const repo1 = await createRepoWithWorkflow(
+        'repo-env1',
+        `name: CI
+on: push
+env:
+  NODE_ENV: test
+  CI: "true"
+jobs:
+  test:
+    runs-on: ubuntu-latest
+`
+      );
+
+      const repo2 = await createRepoWithWorkflow(
+        'repo-env2',
+        `name: CI
+on: push
+env:
+  NODE_ENV: production
+  COVERAGE: "true"
+jobs:
+  build:
+    runs-on: ubuntu-latest
+`
+      );
+
+      const outputDir = path.join(tempDir, 'output-env');
+      await fs.ensureDir(outputDir);
+
+      await mergeWorkflows(
+        [
+          { path: repo1, name: 'repo-env1' },
+          { path: repo2, name: 'repo-env2' },
+        ],
+        { strategy: 'combine', outputDir }
+      );
+
+      const content = await fs.readFile(
+        path.join(outputDir, '.github', 'workflows', 'ci.yml'),
+        'utf-8'
+      );
+
+      // Later env overwrites earlier for same key
+      expect(content).toContain('COVERAGE');
+      expect(content).toContain('CI');
+    });
+
+    it('should prefix job needs references in combined workflows', async () => {
+      const repo1 = await createRepoWithWorkflow(
+        'repo-needs',
+        `name: CI
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+  deploy:
+    runs-on: ubuntu-latest
+    needs: [build]
+`
+      );
+
+      const outputDir = path.join(tempDir, 'output-needs');
+      await fs.ensureDir(outputDir);
+
+      await mergeWorkflows(
+        [{ path: repo1, name: 'repo-needs' }],
+        { strategy: 'combine', outputDir }
+      );
+
+      const content = await fs.readFile(
+        path.join(outputDir, '.github', 'workflows', 'ci.yml'),
+        'utf-8'
+      );
+
+      // Single workflow should be returned as-is
+      expect(content).toContain('deploy');
+    });
+
+    it('should merge needs with string references in combined multi-repo workflows', async () => {
+      const repo1 = await createRepoWithWorkflow(
+        'repo-str-needs1',
+        `name: CI
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+  test:
+    runs-on: ubuntu-latest
+    needs: build
+`
+      );
+
+      const repo2 = await createRepoWithWorkflow(
+        'repo-str-needs2',
+        `name: CI
+on: push
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+`
+      );
+
+      const outputDir = path.join(tempDir, 'output-str-needs');
+      await fs.ensureDir(outputDir);
+
+      await mergeWorkflows(
+        [
+          { path: repo1, name: 'pkg-a' },
+          { path: repo2, name: 'pkg-b' },
+        ],
+        { strategy: 'combine', outputDir }
+      );
+
+      const content = await fs.readFile(
+        path.join(outputDir, '.github', 'workflows', 'ci.yml'),
+        'utf-8'
+      );
+
+      // String needs should be prefixed
+      expect(content).toContain('pkg-a-build');
+      expect(content).toContain('pkg-b-lint');
+    });
+  });
+
+  describe('mergeWorkflowsToFiles', () => {
+    it('should return empty for skip strategy', async () => {
+      const repo = await createRepoWithWorkflow('repo1', 'name: CI\non: push');
+      const result = await mergeWorkflowsToFiles(
+        [{ path: repo, name: 'repo1' }],
+        'skip'
+      );
+      expect(result).toEqual([]);
+    });
+
+    it('should return files for keep-first strategy', async () => {
+      const repo1 = await createRepoWithWorkflow('repo1', 'name: First\non: push');
+      const repo2 = await createRepoWithWorkflow('repo2', 'name: Second\non: push');
+
+      const result = await mergeWorkflowsToFiles(
+        [
+          { path: repo1, name: 'repo1' },
+          { path: repo2, name: 'repo2' },
+        ],
+        'keep-first'
+      );
+
+      expect(result).toHaveLength(1);
+      expect(result[0].relativePath).toBe('.github/workflows/ci.yml');
+      expect(result[0].content).toContain('First');
+      expect(result[0].content).not.toContain('Second');
+    });
+
+    it('should return files for keep-last strategy', async () => {
+      const repo1 = await createRepoWithWorkflow('repo1', 'name: First\non: push');
+      const repo2 = await createRepoWithWorkflow('repo2', 'name: Second\non: push');
+
+      const result = await mergeWorkflowsToFiles(
+        [
+          { path: repo1, name: 'repo1' },
+          { path: repo2, name: 'repo2' },
+        ],
+        'keep-last'
+      );
+
+      expect(result).toHaveLength(1);
+      expect(result[0].relativePath).toBe('.github/workflows/ci.yml');
+      expect(result[0].content).toContain('Second');
+    });
+
+    it('should return combined files for combine strategy', async () => {
+      const repo1 = await createRepoWithWorkflow(
+        'repo1',
+        `name: CI
+on: push
+jobs:
+  test:
+    runs-on: ubuntu-latest
+`
+      );
+      const repo2 = await createRepoWithWorkflow(
+        'repo2',
+        `name: CI
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+`
+      );
+
+      const result = await mergeWorkflowsToFiles(
+        [
+          { path: repo1, name: 'repo1' },
+          { path: repo2, name: 'repo2' },
+        ],
+        'combine'
+      );
+
+      expect(result).toHaveLength(1);
+      expect(result[0].relativePath).toBe('.github/workflows/ci.yml');
+      expect(result[0].content).toContain('Combined CI workflow');
+      expect(result[0].content).toContain('repo1-test');
+      expect(result[0].content).toContain('repo2-build');
+    });
+
+    it('should return empty for repos with no workflows', async () => {
+      const repoPath = path.join(tempDir, 'empty-repo');
+      await fs.ensureDir(repoPath);
+
+      const result = await mergeWorkflowsToFiles(
+        [{ path: repoPath, name: 'empty-repo' }],
+        'combine'
+      );
+
+      expect(result).toEqual([]);
     });
   });
 });

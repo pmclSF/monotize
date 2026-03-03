@@ -3,7 +3,6 @@ import { execFileSync } from 'node:child_process';
 import chalk from 'chalk';
 import type {
   MergeOptions,
-  ConflictStrategy,
   FileCollisionStrategy,
   WorkspaceTool,
   WorkflowMergeStrategy,
@@ -11,6 +10,7 @@ import type {
   PackageManagerConfig,
 } from '../types/index.js';
 import { createLogger, formatHeader, formatList } from '../utils/logger.js';
+import { CliExitError } from '../utils/errors.js';
 import {
   createTempDir,
   removeDir,
@@ -27,6 +27,11 @@ import {
   promptFileCollisionStrategy,
   promptConfirm,
 } from '../utils/prompts.js';
+import {
+  parseConflictStrategy,
+  parseWorkspaceTool,
+  parseWorkflowStrategy,
+} from '../utils/cli-options.js';
 import { analyzeDependencies } from '../analyzers/dependencies.js';
 import { detectFileCollisions } from '../analyzers/files.js';
 import { cloneOrCopyRepos } from '../strategies/copy.js';
@@ -45,6 +50,8 @@ import {
 } from '../strategies/workspace-tools.js';
 import { preserveHistory, checkGitFilterRepo } from '../strategies/history-preserve.js';
 import { mergeWorkflows } from '../strategies/workflow-merge.js';
+import { buildApplyPlan } from '../core/plan-builder.js';
+import { applyCommand } from './apply.js';
 import {
   resolveDependencyConflicts,
   formatConflict,
@@ -56,7 +63,7 @@ import {
   generateWorkspaceFiles,
   getWorkspacesConfig,
   getPackageManagerField,
-  parsePackageManagerType,
+  tryParsePackageManagerType,
   validatePackageManager,
   getPackageManagerDisplayName,
 } from '../strategies/package-manager.js';
@@ -156,6 +163,30 @@ function printDryRunReport(
 export async function mergeCommand(repos: string[], options: CLIOptions): Promise<void> {
   const logger = createLogger(options.verbose);
   let tempDir: string | null = null;
+  const parsedConflictStrategy = parseConflictStrategy(options.conflictStrategy);
+  const parsedWorkspaceTool = parseWorkspaceTool(options.workspaceTool || 'none');
+  const parsedWorkflowStrategy = parseWorkflowStrategy(options.workflowStrategy || 'combine');
+
+  if (!parsedConflictStrategy) {
+    logger.error(
+      `Invalid conflict strategy: ${options.conflictStrategy}. Valid options: highest, lowest, prompt`
+    );
+    throw new CliExitError();
+  }
+
+  if (!parsedWorkspaceTool) {
+    logger.error(
+      `Invalid workspace tool: ${options.workspaceTool}. Valid options: turbo, nx, none`
+    );
+    throw new CliExitError();
+  }
+
+  if (!parsedWorkflowStrategy) {
+    logger.error(
+      `Invalid workflow strategy: ${options.workflowStrategy}. Valid options: combine, keep-first, keep-last, skip`
+    );
+    throw new CliExitError();
+  }
 
   // Convert CLI options to MergeOptions (extended with Phase 2 options)
   const mergeOptions: MergeOptions & {
@@ -167,15 +198,15 @@ export async function mergeCommand(repos: string[], options: CLIOptions): Promis
     packagesDir: options.packagesDir,
     dryRun: options.dryRun,
     yes: options.yes,
-    conflictStrategy: options.conflictStrategy as ConflictStrategy,
+    conflictStrategy: parsedConflictStrategy,
     verbose: options.verbose,
     install: options.install,
     noHoist: options.hoist === false, // Commander: --no-hoist sets hoist to false
     pinVersions: options.pinVersions,
     // Phase 2 options
     preserveHistory: options.preserveHistory,
-    workspaceTool: (options.workspaceTool as WorkspaceTool) || 'none',
-    workflowStrategy: (options.workflowStrategy as WorkflowMergeStrategy) || 'combine',
+    workspaceTool: parsedWorkspaceTool,
+    workflowStrategy: parsedWorkflowStrategy,
   };
 
   // Robust cleanup function - doesn't throw on failure
@@ -194,12 +225,19 @@ export async function mergeCommand(repos: string[], options: CLIOptions): Promis
   process.on('SIGINT', async () => {
     logger.warn('\nInterrupted. Cleaning up...');
     await cleanup();
-    process.exit(1);
+    process.exit(130); // 128 + SIGINT(2)
   });
 
   try {
     // Step 0a: Determine package manager to use
-    let pmType: PackageManagerType = parsePackageManagerType(options.packageManager || 'pnpm');
+    const parsedPm = tryParsePackageManagerType(options.packageManager || 'pnpm');
+    if (!parsedPm) {
+      logger.error(
+        `Invalid package manager: ${options.packageManager}. Valid options: pnpm, yarn, yarn-berry, npm`
+      );
+      throw new CliExitError();
+    }
+    let pmType: PackageManagerType = parsedPm;
 
     // Step 0b: Check prerequisites for history preservation
     if (mergeOptions.preserveHistory) {
@@ -210,6 +248,107 @@ export async function mergeCommand(repos: string[], options: CLIOptions): Promis
       }
     }
 
+    // Unified path: merge = build plan + apply (non-history mode).
+    if (!mergeOptions.preserveHistory) {
+      tempDir = await createTempDir('merge-plan-');
+      const sourcesDir = path.join(tempDir, 'sources');
+
+      const built = await buildApplyPlan({
+        repos,
+        outputDir: mergeOptions.output,
+        packagesDir: mergeOptions.packagesDir,
+        sourcesDir,
+        conflictStrategy: mergeOptions.conflictStrategy,
+        packageManager: pmType,
+        autoDetectPm: options.autoDetectPm,
+        workspaceTool: mergeOptions.workspaceTool || 'none',
+        workflowStrategy: mergeOptions.workflowStrategy || 'combine',
+        install: mergeOptions.install,
+        noHoist: mergeOptions.noHoist,
+        pinVersions: mergeOptions.pinVersions,
+        yes: mergeOptions.yes,
+        interactive: !mergeOptions.yes && !mergeOptions.dryRun,
+        verbose: mergeOptions.verbose,
+        logger,
+        promptConflictStrategy,
+        promptFileCollisionStrategy,
+      });
+
+      if (built.depAnalysis.conflicts.length > 0) {
+        const summary = getConflictSummary(built.depAnalysis.conflicts);
+        logger.warn(
+          `Found ${built.depAnalysis.conflicts.length} dependency conflicts ` +
+            `(${summary.incompatible} incompatible, ${summary.major} major, ${summary.minor} minor)`
+        );
+      } else {
+        logger.success('No dependency conflicts detected');
+      }
+
+      if (built.collisions.length > 0) {
+        logger.warn(`Found ${built.collisions.length} file collisions`);
+      } else {
+        logger.success('No file collisions detected');
+      }
+
+      if (mergeOptions.dryRun) {
+        printDryRunReport(
+          built.repoPaths,
+          built.depAnalysis.conflicts,
+          built.collisions,
+          mergeOptions,
+          built.pmConfig
+        );
+        await cleanup();
+        return;
+      }
+
+      if (await pathExists(mergeOptions.output)) {
+        if (!mergeOptions.yes) {
+          const overwrite = await promptConfirm(
+            `Output directory ${mergeOptions.output} already exists. Overwrite?`,
+            false
+          );
+          if (!overwrite) {
+            logger.warn('Aborted by user');
+            await cleanup();
+            return;
+          }
+        }
+        await removeDir(mergeOptions.output);
+      }
+      await ensureDir(path.dirname(mergeOptions.output));
+
+      const transientPlanPath = path.join(tempDir, 'merge.apply-plan.json');
+      await writeJson(transientPlanPath, built.plan, { spaces: 2 });
+      await applyCommand({
+        plan: transientPlanPath,
+        out: mergeOptions.output,
+        verbose: mergeOptions.verbose,
+      });
+
+      logger.log('');
+      logger.success(chalk.bold('Monorepo created successfully!'));
+      logger.log('');
+      logger.log(`  ${chalk.cyan('Location:')} ${mergeOptions.output}`);
+      logger.log(`  ${chalk.cyan('Packages:')} ${built.plan.sources.length}`);
+      logger.log(
+        `  ${chalk.cyan('Package manager:')} ${getPackageManagerDisplayName(
+          built.pmConfig.type
+        )}`
+      );
+      logger.log('');
+      logger.log('Next steps:');
+      logger.log(`  cd ${mergeOptions.output}`);
+      if (!mergeOptions.install) {
+        logger.log(`  ${built.pmConfig.installCommand}`);
+      }
+      logger.log(`  ${built.pmConfig.runAllCommand('build')}`);
+
+      await cleanup();
+      tempDir = null;
+      return;
+    }
+
     // Step 1: Validate repo sources
     logger.info('Validating repository sources...');
     const validation = await validateRepoSources(repos);
@@ -218,7 +357,7 @@ export async function mergeCommand(repos: string[], options: CLIOptions): Promis
       for (const error of validation.errors) {
         logger.error(error);
       }
-      process.exit(1);
+      throw new CliExitError();
     }
 
     logger.success(`Found ${validation.sources.length} repositories to merge`);
@@ -232,6 +371,7 @@ export async function mergeCommand(repos: string[], options: CLIOptions): Promis
     const repoPaths = await cloneOrCopyRepos(validation.sources, tempDir, {
       logger,
       verbose: mergeOptions.verbose,
+      shallow: !mergeOptions.preserveHistory, // full clone needed for history preservation
     });
 
     // Step 3b: Auto-detect package manager if requested
@@ -250,7 +390,7 @@ export async function mergeCommand(repos: string[], options: CLIOptions): Promis
     if (!pmValidation.valid) {
       logger.error(pmValidation.error!);
       await cleanup();
-      process.exit(1);
+      throw new CliExitError();
     }
 
     // Create package manager config
@@ -349,8 +489,9 @@ export async function mergeCommand(repos: string[], options: CLIOptions): Promis
           stdio: 'pipe',
         });
         logger.debug('Initialized git repository in output directory');
-      } catch {
-        // Git may already be initialized
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        logger.debug(`git init skipped in output directory: ${message}`);
       }
 
       for (const repo of repoPaths) {
@@ -526,9 +667,9 @@ resolution-mode=lowest
     const hasGitignoreCollision = collisions.some((c) => c.path === '.gitignore');
     if (!hasGitignoreCollision) {
       // Check if any repo has a .gitignore and merge them all
-      const gitignorePaths = movedRepoPaths
-        .map((r) => path.join(r.path, '.gitignore'))
-        .filter(async (p) => await pathExists(p));
+      const allGitignorePaths = movedRepoPaths.map((r) => path.join(r.path, '.gitignore'));
+      const gitignoreExists = await Promise.all(allGitignorePaths.map((p) => pathExists(p)));
+      const gitignorePaths = allGitignorePaths.filter((_, i) => gitignoreExists[i]);
 
       if (gitignorePaths.length > 0) {
         const merged = await mergeGitignores(gitignorePaths);
@@ -604,6 +745,6 @@ dist/
     }
 
     await cleanup();
-    process.exit(1);
+    throw new CliExitError();
   }
 }

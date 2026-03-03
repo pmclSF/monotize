@@ -194,8 +194,8 @@ describe('File Collision Analysis', () => {
       const result = getFilePaths('config.json', repos, ['repo1', 'repo2']);
 
       expect(result).toHaveLength(2);
-      expect(result[0]).toBe('/path/to/repo1/config.json');
-      expect(result[1]).toBe('/path/to/repo2/config.json');
+      expect(result[0]).toBe(path.join('/path/to/repo1', 'config.json'));
+      expect(result[1]).toBe(path.join('/path/to/repo2', 'config.json'));
     });
 
     it('should filter out non-existent repos', () => {
@@ -206,7 +206,7 @@ describe('File Collision Analysis', () => {
       const result = getFilePaths('config.json', repos, ['repo1', 'nonexistent']);
 
       expect(result).toHaveLength(1);
-      expect(result[0]).toBe('/path/to/repo1/config.json');
+      expect(result[0]).toBe(path.join('/path/to/repo1', 'config.json'));
     });
   });
 

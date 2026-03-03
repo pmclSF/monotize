@@ -3,6 +3,7 @@ import simpleGit from 'simple-git';
 import type { RepoSource, Logger } from '../types/index.js';
 import { copyDir, ensureDir, pathExists, removeDir } from '../utils/fs.js';
 import { redactUrl } from '../utils/redact.js';
+import { pMap } from '../utils/concurrency.js';
 
 /**
  * Options for cloning/copying repositories
@@ -16,6 +17,10 @@ export interface CopyOptions {
   cloneTimeout?: number;
   /** Number of retries for transient failures (default: 3) */
   maxRetries?: number;
+  /** Use shallow clone (--depth 1) for faster cloning. Set to false when preserving history. Default: true */
+  shallow?: boolean;
+  /** Max concurrent clone/copy operations (default: 4) */
+  concurrency?: number;
 }
 
 /**
@@ -145,9 +150,9 @@ async function cloneRepo(
   url: string,
   targetDir: string,
   logger: Logger,
-  options: { timeout?: number; maxRetries?: number } = {}
+  options: { timeout?: number; maxRetries?: number; shallow?: boolean } = {}
 ): Promise<void> {
-  const { timeout = 60000, maxRetries = 3 } = options;
+  const { timeout = 60000, maxRetries = 3, shallow = true } = options;
 
   const git = simpleGit({
     timeout: {
@@ -161,7 +166,8 @@ async function cloneRepo(
     try {
       logger.debug(`Cloning ${redactUrl(url)} to ${targetDir} (attempt ${attempt}/${maxRetries})`);
 
-      await git.clone(url, targetDir, ['--depth', '1']);
+      const cloneArgs = shallow ? ['--depth', '1'] : [];
+      await git.clone(url, targetDir, cloneArgs);
 
       logger.debug(`Successfully cloned ${redactUrl(url)}`);
       return;
@@ -207,7 +213,8 @@ async function copyLocalRepo(
   await copyDir(sourcePath, targetDir, {
     filter: (src) => {
       const basename = path.basename(src);
-      return !EXCLUDE_PATTERNS.includes(basename);
+      // Exclude known build/tool dirs and macOS resource fork files (._*)
+      return !EXCLUDE_PATTERNS.includes(basename) && !basename.startsWith('._');
     },
   });
 
@@ -222,7 +229,7 @@ export async function cloneOrCopyRepo(
   targetDir: string,
   options: CopyOptions
 ): Promise<void> {
-  const { logger, cloneTimeout = 60000, maxRetries = 3 } = options;
+  const { logger, cloneTimeout = 60000, maxRetries = 3, shallow = true } = options;
 
   await ensureDir(targetDir);
 
@@ -238,6 +245,7 @@ export async function cloneOrCopyRepo(
     await cloneRepo(source.resolved, targetDir, logger, {
       timeout: cloneTimeout,
       maxRetries,
+      shallow,
     });
   }
 }
@@ -250,24 +258,27 @@ export async function cloneOrCopyRepos(
   tempDir: string,
   options: CopyOptions
 ): Promise<Array<{ path: string; name: string }>> {
-  const { logger } = options;
-  const results: Array<{ path: string; name: string }> = [];
+  const { logger, concurrency = 4 } = options;
 
-  for (const source of sources) {
-    const targetDir = path.join(tempDir, source.name);
+  const results = await pMap(
+    sources,
+    async (source) => {
+      const targetDir = path.join(tempDir, source.name);
 
-    logger.info(`Processing ${source.original}...`);
+      logger.info(`Processing ${source.original}...`);
 
-    try {
-      await cloneOrCopyRepo(source, targetDir, options);
-      results.push({ path: targetDir, name: source.name });
-      logger.success(`Processed ${source.name}`);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      logger.error(`Failed to process ${source.original}: ${message}`);
-      throw error;
-    }
-  }
+      try {
+        await cloneOrCopyRepo(source, targetDir, options);
+        logger.success(`Processed ${source.name}`);
+        return { path: targetDir, name: source.name };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        logger.error(`Failed to process ${source.original}: ${message}`);
+        throw error;
+      }
+    },
+    concurrency,
+  );
 
   return results;
 }

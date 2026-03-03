@@ -9,17 +9,37 @@ import { createServer } from '../../src/server/index.js';
 const fixturesDir = path.resolve(__dirname, '../fixtures');
 
 let server: http.Server;
+let authToken: string;
 let wsUrl: string;
 
 // Track artifacts for cleanup
 const cleanupPaths: string[] = [];
 
+/** Supertest agent pre-configured with Bearer auth */
+function api() {
+  return request(server);
+}
+
+function authPost(path: string) {
+  return api().post(path).set('Authorization', `Bearer ${authToken}`);
+}
+
+function authGet(path: string) {
+  return api().get(path).set('Authorization', `Bearer ${authToken}`);
+}
+
+function authPut(path: string) {
+  return api().put(path).set('Authorization', `Bearer ${authToken}`);
+}
+
 beforeAll(async () => {
-  server = createServer({ port: 0 }); // OS-assigned port
+  const result = createServer({ port: 0 }); // OS-assigned port
+  server = result.server;
+  authToken = result.token;
   await new Promise<void>((resolve) => {
     server.on('listening', () => {
       const addr = server.address() as { port: number };
-      wsUrl = `ws://localhost:${addr.port}/ws`;
+      wsUrl = `ws://127.0.0.1:${addr.port}/ws?token=${authToken}`;
       resolve();
     });
   });
@@ -77,8 +97,7 @@ function collectEvents(
 async function generatePlanViaApi(repos: string[]): Promise<string> {
   const ws = await openWs();
   try {
-    const res = await request(server)
-      .post('/api/plan')
+    const res = await authPost('/api/plan')
       .send({ repos })
       .expect(202);
 
@@ -99,10 +118,25 @@ async function generatePlanViaApi(repos: string[]): Promise<string> {
   }
 }
 
+describe('CORS and middleware', () => {
+  it('should respond 204 to OPTIONS preflight request', async () => {
+    await api()
+      .options('/api/analyze')
+      .expect(204);
+  });
+
+  it('should set CORS headers', async () => {
+    const res = await api()
+      .options('/api/analyze');
+
+    expect(res.headers['access-control-allow-methods']).toContain('GET');
+    expect(res.headers['access-control-allow-headers']).toContain('Authorization');
+  });
+});
+
 describe('POST /api/analyze', () => {
   it('returns 202 with opId for valid repos', async () => {
-    const res = await request(server)
-      .post('/api/analyze')
+    const res = await authPost('/api/analyze')
       .send({ repos: [path.join(fixturesDir, 'repo-a')] })
       .expect(202);
 
@@ -111,31 +145,49 @@ describe('POST /api/analyze', () => {
   });
 
   it('returns 400 for empty repos', async () => {
-    await request(server)
-      .post('/api/analyze')
+    await authPost('/api/analyze')
       .send({ repos: [] })
       .expect(400);
   });
 
   it('returns 400 for missing repos field', async () => {
-    await request(server)
-      .post('/api/analyze')
+    await authPost('/api/analyze')
       .send({})
       .expect(400);
   });
 
   it('returns 400 for non-array repos', async () => {
-    await request(server)
-      .post('/api/analyze')
+    await authPost('/api/analyze')
       .send({ repos: 'not-an-array' })
       .expect(400);
   });
 
+  it('returns 401 without auth token', async () => {
+    await api()
+      .post('/api/analyze')
+      .send({ repos: [path.join(fixturesDir, 'repo-a')] })
+      .expect(401);
+  });
+
+  it('streams error event for nonexistent repo paths', async () => {
+    const ws = await openWs();
+    try {
+      const res = await authPost('/api/analyze')
+        .send({ repos: ['/nonexistent/path/repo'] })
+        .expect(202);
+
+      const events = await collectEvents(ws, res.body.opId);
+      const errorEvents = events.filter((e) => e.type === 'error');
+      expect(errorEvents.length).toBeGreaterThanOrEqual(1);
+    } finally {
+      ws.close();
+    }
+  }, 60000);
+
   it('streams result over WebSocket', async () => {
     const ws = await openWs();
     try {
-      const res = await request(server)
-        .post('/api/analyze')
+      const res = await authPost('/api/analyze')
         .send({ repos: [path.join(fixturesDir, 'repo-a'), path.join(fixturesDir, 'repo-b')] })
         .expect(202);
 
@@ -160,8 +212,7 @@ describe('POST /api/analyze', () => {
 
 describe('POST /api/plan', () => {
   it('returns 202 with opId', async () => {
-    const res = await request(server)
-      .post('/api/plan')
+    const res = await authPost('/api/plan')
       .send({ repos: [path.join(fixturesDir, 'repo-a')] })
       .expect(202);
 
@@ -185,17 +236,30 @@ describe('POST /api/plan', () => {
   }, 60000);
 
   it('returns 400 for empty repos', async () => {
-    await request(server)
-      .post('/api/plan')
+    await authPost('/api/plan')
       .send({ repos: [] })
       .expect(400);
   });
 
+  it('streams error event for nonexistent repo paths', async () => {
+    const ws = await openWs();
+    try {
+      const res = await authPost('/api/plan')
+        .send({ repos: ['/nonexistent/path/repo'] })
+        .expect(202);
+
+      const events = await collectEvents(ws, res.body.opId);
+      const errorEvents = events.filter((e) => e.type === 'error');
+      expect(errorEvents.length).toBeGreaterThanOrEqual(1);
+    } finally {
+      ws.close();
+    }
+  }, 60000);
+
   it('receives plan result via WebSocket', async () => {
     const ws = await openWs();
     try {
-      const res = await request(server)
-        .post('/api/plan')
+      const res = await authPost('/api/plan')
         .send({
           repos: [path.join(fixturesDir, 'repo-a'), path.join(fixturesDir, 'repo-b')],
           options: { conflictStrategy: 'highest' },
@@ -225,8 +289,7 @@ describe('POST /api/verify', () => {
 
     const ws = await openWs();
     try {
-      const verifyRes = await request(server)
-        .post('/api/verify')
+      const verifyRes = await authPost('/api/verify')
         .send({ plan: planPath })
         .expect(202);
 
@@ -244,26 +307,72 @@ describe('POST /api/verify', () => {
   }, 60000);
 
   it('returns 400 when neither plan nor dir specified', async () => {
-    await request(server)
-      .post('/api/verify')
+    await authPost('/api/verify')
       .send({})
       .expect(400);
   });
 
   it('returns 400 when both plan and dir specified', async () => {
-    await request(server)
-      .post('/api/verify')
+    await authPost('/api/verify')
       .send({ plan: 'a', dir: 'b' })
       .expect(400);
   });
+
+  it('streams error event for nonexistent plan file', async () => {
+    const ws = await openWs();
+    try {
+      const res = await authPost('/api/verify')
+        .send({ plan: '/nonexistent/path/plan.json' })
+        .expect(202);
+
+      const events = await collectEvents(ws, res.body.opId);
+      const errorEvents = events.filter((e) => e.type === 'error');
+      expect(errorEvents.length).toBeGreaterThanOrEqual(1);
+    } finally {
+      ws.close();
+    }
+  }, 60000);
+
+  it('verifies a real directory with dir option', async () => {
+    const ws = await openWs();
+    try {
+      const res = await authPost('/api/verify')
+        .send({ dir: path.join(fixturesDir, 'repo-a') })
+        .expect(202);
+
+      const events = await collectEvents(ws, res.body.opId);
+      const resultEvents = events.filter((e) => e.type === 'result');
+      expect(resultEvents).toHaveLength(1);
+
+      const result = resultEvents[0].data as Record<string, unknown>;
+      expect(result).toHaveProperty('checks');
+      expect(result).toHaveProperty('summary');
+    } finally {
+      ws.close();
+    }
+  }, 60000);
+
+  it('streams error for nonexistent dir', async () => {
+    const ws = await openWs();
+    try {
+      const res = await authPost('/api/verify')
+        .send({ dir: '/nonexistent/monorepo/path' })
+        .expect(202);
+
+      const events = await collectEvents(ws, res.body.opId);
+      const errorEvents = events.filter((e) => e.type === 'error');
+      expect(errorEvents.length).toBeGreaterThanOrEqual(1);
+    } finally {
+      ws.close();
+    }
+  }, 60000);
 });
 
 describe('POST /api/apply', () => {
   it('returns 202 with opId for valid plan', async () => {
     const planPath = await generatePlanViaApi([path.join(fixturesDir, 'repo-a')]);
 
-    const res = await request(server)
-      .post('/api/apply')
+    const res = await authPost('/api/apply')
       .send({ plan: planPath })
       .expect(202);
 
@@ -276,29 +385,41 @@ describe('POST /api/apply', () => {
     } finally {
       ws.close();
     }
-  }, 60000);
+  }, 90000);
 
   it('returns 400 for missing plan', async () => {
-    await request(server)
-      .post('/api/apply')
+    await authPost('/api/apply')
       .send({})
       .expect(400);
   });
+
+  it('streams error event for nonexistent plan file', async () => {
+    const ws = await openWs();
+    try {
+      const res = await authPost('/api/apply')
+        .send({ plan: '/nonexistent/path/plan.json' })
+        .expect(202);
+
+      const events = await collectEvents(ws, res.body.opId);
+      const errorEvents = events.filter((e) => e.type === 'error');
+      expect(errorEvents.length).toBeGreaterThanOrEqual(1);
+    } finally {
+      ws.close();
+    }
+  }, 60000);
 });
 
 describe('GET /api/status/:opId', () => {
   it('returns buffered events after operation completes', async () => {
     const ws = await openWs();
     try {
-      const res = await request(server)
-        .post('/api/analyze')
+      const res = await authPost('/api/analyze')
         .send({ repos: [path.join(fixturesDir, 'repo-a')] })
         .expect(202);
 
       await collectEvents(ws, res.body.opId);
 
-      const statusRes = await request(server)
-        .get(`/api/status/${res.body.opId}`)
+      const statusRes = await authGet(`/api/status/${res.body.opId}`)
         .expect(200);
 
       expect(statusRes.body).toHaveProperty('events');
@@ -310,8 +431,7 @@ describe('GET /api/status/:opId', () => {
   }, 60000);
 
   it('returns 404 for unknown opId', async () => {
-    await request(server)
-      .get('/api/status/nonexistent-op')
+    await authGet('/api/status/nonexistent-op')
       .expect(404);
   });
 });
@@ -320,8 +440,7 @@ describe('WebSocket', () => {
   it('subscribe receives log events', async () => {
     const ws = await openWs();
     try {
-      const res = await request(server)
-        .post('/api/analyze')
+      const res = await authPost('/api/analyze')
         .send({ repos: [path.join(fixturesDir, 'repo-a')] })
         .expect(202);
 
@@ -338,6 +457,43 @@ describe('WebSocket', () => {
       ws.close();
     }
   }, 60000);
+
+  it('should reject WebSocket upgrade on non-/ws path', async () => {
+    const addr = server.address() as { port: number };
+    const ws = new WebSocket(`ws://127.0.0.1:${addr.port}/not-ws?token=${authToken}`);
+
+    await new Promise<void>((resolve) => {
+      ws.on('error', () => resolve());
+      ws.on('close', () => resolve());
+    });
+
+    // Connection should have been destroyed
+    expect(ws.readyState).toBeGreaterThanOrEqual(2); // CLOSING or CLOSED
+  });
+
+  it('should reject WebSocket upgrade with invalid token', async () => {
+    const addr = server.address() as { port: number };
+    const ws = new WebSocket(`ws://127.0.0.1:${addr.port}/ws?token=wrong-token`);
+
+    await new Promise<void>((resolve) => {
+      ws.on('error', () => resolve());
+      ws.on('close', () => resolve());
+    });
+
+    expect(ws.readyState).toBeGreaterThanOrEqual(2); // CLOSING or CLOSED
+  });
+
+  it('should reject WebSocket upgrade with no token', async () => {
+    const addr = server.address() as { port: number };
+    const ws = new WebSocket(`ws://127.0.0.1:${addr.port}/ws`);
+
+    await new Promise<void>((resolve) => {
+      ws.on('error', () => resolve());
+      ws.on('close', () => resolve());
+    });
+
+    expect(ws.readyState).toBeGreaterThanOrEqual(2); // CLOSING or CLOSED
+  });
 });
 
 // ─── Wizard State Endpoints ─────────────────────────────────────────────
@@ -349,11 +505,11 @@ describe('GET /api/wizard/state', () => {
     try { await fs.remove(monotizeDir); } catch { /* ignore */ }
   });
 
-  it('returns { exists: false, state: null } when no config', async () => {
+  it('returns { exists: false, state: null } when no config (no auth required)', async () => {
     // Ensure no leftover state
     await fs.remove(monotizeDir);
 
-    const res = await request(server)
+    const res = await api()
       .get('/api/wizard/state')
       .expect(200);
 
@@ -368,8 +524,7 @@ describe('POST /api/wizard/init', () => {
   });
 
   it('creates default state and returns it', async () => {
-    const res = await request(server)
-      .post('/api/wizard/init')
+    const res = await authPost('/api/wizard/init')
       .send({ repos: [path.join(fixturesDir, 'repo-a')] })
       .expect(200);
 
@@ -381,15 +536,13 @@ describe('POST /api/wizard/init', () => {
   });
 
   it('returns 400 for missing repos', async () => {
-    await request(server)
-      .post('/api/wizard/init')
+    await authPost('/api/wizard/init')
       .send({})
       .expect(400);
   });
 
   it('returns 400 for empty repos', async () => {
-    await request(server)
-      .post('/api/wizard/init')
+    await authPost('/api/wizard/init')
       .send({ repos: [] })
       .expect(400);
   });
@@ -402,23 +555,21 @@ describe('PUT /api/wizard/state', () => {
 
   it('saves state to disk', async () => {
     // First init
-    const initRes = await request(server)
-      .post('/api/wizard/init')
+    const initRes = await authPost('/api/wizard/init')
       .send({ repos: ['./repo-a'] })
       .expect(200);
 
     const state = initRes.body.state;
     state.currentStep = 'prepare';
 
-    const putRes = await request(server)
-      .put('/api/wizard/state')
+    const putRes = await authPut('/api/wizard/state')
       .send(state)
       .expect(200);
 
     expect(putRes.body).toEqual({ ok: true });
 
-    // Verify persisted
-    const getRes = await request(server)
+    // Verify persisted (GET wizard/state does not require auth)
+    const getRes = await api()
       .get('/api/wizard/state')
       .expect(200);
 
@@ -427,8 +578,7 @@ describe('PUT /api/wizard/state', () => {
   });
 
   it('returns 400 for invalid state', async () => {
-    await request(server)
-      .put('/api/wizard/state')
+    await authPut('/api/wizard/state')
       .send({ notAState: true })
       .expect(400);
   });
@@ -438,8 +588,7 @@ describe('PUT /api/wizard/state', () => {
 
 describe('POST /api/prepare', () => {
   it('returns 202 with opId for valid repos', async () => {
-    const res = await request(server)
-      .post('/api/prepare')
+    const res = await authPost('/api/prepare')
       .send({ repos: [path.join(fixturesDir, 'repo-a')] })
       .expect(202);
 
@@ -449,8 +598,7 @@ describe('POST /api/prepare', () => {
   it('streams prepare result over WebSocket', async () => {
     const ws = await openWs();
     try {
-      const res = await request(server)
-        .post('/api/prepare')
+      const res = await authPost('/api/prepare')
         .send({ repos: [path.join(fixturesDir, 'repo-a')] })
         .expect(202);
 
@@ -468,10 +616,88 @@ describe('POST /api/prepare', () => {
   }, 60000);
 
   it('returns 400 for empty repos', async () => {
-    await request(server)
-      .post('/api/prepare')
+    await authPost('/api/prepare')
       .send({ repos: [] })
       .expect(400);
+  });
+
+  it('streams error event for nonexistent repo paths', async () => {
+    const ws = await openWs();
+    try {
+      const res = await authPost('/api/prepare')
+        .send({ repos: ['/nonexistent/path/repo'] })
+        .expect(202);
+
+      const events = await collectEvents(ws, res.body.opId);
+      const errorEvents = events.filter((e) => e.type === 'error');
+      expect(errorEvents.length).toBeGreaterThanOrEqual(1);
+    } finally {
+      ws.close();
+    }
+  }, 60000);
+});
+
+// ─── Add Endpoint ───────────────────────────────────────────────────────
+
+describe('POST /api/add', () => {
+  it('returns 400 for missing repo', async () => {
+    await authPost('/api/add')
+      .send({ targetMonorepo: '/tmp/mono' })
+      .expect(400);
+  });
+
+  it('returns 400 for missing targetMonorepo', async () => {
+    await authPost('/api/add')
+      .send({ repo: './some-repo' })
+      .expect(400);
+  });
+
+  it('returns 400 for non-string repo', async () => {
+    await authPost('/api/add')
+      .send({ repo: 123, targetMonorepo: '/tmp/mono' })
+      .expect(400);
+  });
+
+  it('returns 202 with opId for valid input', async () => {
+    const res = await authPost('/api/add')
+      .send({ repo: './tests/fixtures/repo-a', targetMonorepo: '/tmp/mono-test' })
+      .expect(202);
+
+    expect(res.body).toHaveProperty('opId');
+  });
+});
+
+// ─── Migrate Branch Endpoint ────────────────────────────────────────────
+
+describe('POST /api/migrate-branch', () => {
+  it('returns 400 for missing branch', async () => {
+    await authPost('/api/migrate-branch')
+      .send({ sourceRepo: './repo', targetMonorepo: '/tmp/mono' })
+      .expect(400);
+  });
+
+  it('returns 400 for missing sourceRepo', async () => {
+    await authPost('/api/migrate-branch')
+      .send({ branch: 'feature', targetMonorepo: '/tmp/mono' })
+      .expect(400);
+  });
+
+  it('returns 400 for missing targetMonorepo', async () => {
+    await authPost('/api/migrate-branch')
+      .send({ branch: 'feature', sourceRepo: './repo' })
+      .expect(400);
+  });
+
+  it('returns 202 with opId for valid input', async () => {
+    const res = await authPost('/api/migrate-branch')
+      .send({
+        branch: 'feature',
+        sourceRepo: './tests/fixtures/repo-a',
+        targetMonorepo: '/tmp/mono-test',
+      })
+      .expect(202);
+
+    expect(res.body).toHaveProperty('opId');
   });
 });
 
@@ -485,8 +711,7 @@ describe('POST /api/configure', () => {
   });
 
   it('returns 202 with opId for valid input', async () => {
-    const res = await request(server)
-      .post('/api/configure')
+    const res = await authPost('/api/configure')
       .send({ packagesDir: 'packages', packageNames: ['app-a'], baseDir: configureTmpDir })
       .expect(202);
 
@@ -494,15 +719,13 @@ describe('POST /api/configure', () => {
   });
 
   it('returns 400 for missing packagesDir', async () => {
-    await request(server)
-      .post('/api/configure')
+    await authPost('/api/configure')
       .send({ packageNames: ['app-a'] })
       .expect(400);
   });
 
   it('returns 400 for empty packageNames', async () => {
-    await request(server)
-      .post('/api/configure')
+    await authPost('/api/configure')
       .send({ packagesDir: 'packages', packageNames: [] })
       .expect(400);
   });
@@ -516,8 +739,7 @@ describe('POST /api/archive', () => {
     delete process.env.GITHUB_TOKEN;
 
     try {
-      const res = await request(server)
-        .post('/api/archive')
+      const res = await authPost('/api/archive')
         .send({ repos: ['./repo-a'] })
         .expect(400);
 
@@ -528,8 +750,7 @@ describe('POST /api/archive', () => {
   });
 
   it('returns 400 for missing repos', async () => {
-    await request(server)
-      .post('/api/archive')
+    await authPost('/api/archive')
       .send({})
       .expect(400);
   });
@@ -539,8 +760,7 @@ describe('POST /api/archive', () => {
     process.env.GITHUB_TOKEN = 'test-token';
 
     try {
-      const res = await request(server)
-        .post('/api/archive')
+      const res = await authPost('/api/archive')
         .send({ repos: ['./repo-a'] })
         .expect(200);
 

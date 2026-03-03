@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import fs from 'fs-extra';
 import path from 'node:path';
 import os from 'node:os';
@@ -65,7 +65,8 @@ describe('analyze command E2E', () => {
 
   function runAnalyze(repos: string[], options: string = ''): string {
     const binPath = path.join(process.cwd(), 'bin', 'monorepo.js');
-    return execSync(`node ${binPath} analyze ${repos.join(' ')} ${options}`, {
+    const args = ['analyze', ...repos, ...options.split(/\s+/).filter(Boolean)];
+    return execFileSync('node', [binPath, ...args], {
       encoding: 'utf-8',
       stdio: 'pipe',
     });

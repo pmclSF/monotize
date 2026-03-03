@@ -10,6 +10,7 @@ import type {
   Logger,
 } from '../types/index.js';
 import { createLogger } from '../utils/logger.js';
+import { CliExitError } from '../utils/errors.js';
 import {
   ensureDir,
   move,
@@ -27,6 +28,38 @@ import {
   appendLogEntry,
   computePlanHash,
 } from '../utils/operation-log.js';
+
+/**
+ * Assert that a path, when resolved relative to a base directory,
+ * stays within that base directory. Prevents path traversal attacks.
+ */
+function assertPathContained(base: string, relativePath: string): void {
+  const resolved = path.resolve(base, relativePath);
+  const normalizedBase = path.resolve(base) + path.sep;
+  if (!resolved.startsWith(normalizedBase) && resolved !== path.resolve(base)) {
+    throw new Error(`Path traversal detected: "${relativePath}" escapes base directory`);
+  }
+}
+
+const ALLOWED_INSTALL_EXECUTABLES = new Set(['pnpm', 'npm', 'yarn', 'bun', 'npx']);
+
+/**
+ * Validate and parse an install command, ensuring only approved executables are used.
+ */
+function validateInstallCommand(cmd: string): { exe: string; args: string[] } {
+  const parts = cmd.split(/\s+/).filter(Boolean);
+  if (parts.length === 0) {
+    throw new Error('Install command is empty');
+  }
+  const exe = parts[0];
+  if (!ALLOWED_INSTALL_EXECUTABLES.has(exe)) {
+    throw new Error(
+      `Install command executable "${exe}" is not allowed. ` +
+      `Allowed executables: ${[...ALLOWED_INSTALL_EXECUTABLES].join(', ')}`
+    );
+  }
+  return { exe, args: parts.slice(1) };
+}
 
 /**
  * CLI options passed from commander
@@ -49,6 +82,7 @@ export function validatePlan(data: unknown): data is ApplyPlan {
   if (plan.version !== 1) return false;
   if (!Array.isArray(plan.sources) || plan.sources.length === 0) return false;
   if (typeof plan.packagesDir !== 'string') return false;
+  if (plan.packagesDir.includes('..') || path.isAbsolute(plan.packagesDir)) return false;
   if (typeof plan.rootPackageJson !== 'object' || plan.rootPackageJson === null) return false;
   if (!Array.isArray(plan.files)) return false;
   if (typeof plan.install !== 'boolean') return false;
@@ -61,6 +95,8 @@ export function validatePlan(data: unknown): data is ApplyPlan {
     if (typeof file !== 'object' || file === null) return false;
     const f = file as Record<string, unknown>;
     if (typeof f.relativePath !== 'string' || typeof f.content !== 'string') return false;
+    // Reject path traversal attempts
+    if (f.relativePath.includes('..') || path.isAbsolute(f.relativePath as string)) return false;
   }
   return true;
 }
@@ -162,7 +198,7 @@ export async function applyCommand(options: CLIApplyOptions): Promise<void> {
   const planPath = path.resolve(options.plan);
   if (!(await pathExists(planPath))) {
     logger.error(`Plan file not found: ${planPath}`);
-    process.exit(1);
+    throw new CliExitError();
   }
 
   const planContent = await readFile(planPath);
@@ -173,14 +209,12 @@ export async function applyCommand(options: CLIApplyOptions): Promise<void> {
     plan = JSON.parse(planContent);
   } catch {
     logger.error('Plan file contains invalid JSON.');
-    process.exit(1);
-    return; // unreachable, satisfies TS
+    throw new CliExitError();
   }
 
   if (!validatePlan(plan)) {
     logger.error('Plan file is invalid. Check version, sources, packagesDir, rootPackageJson, files, and install fields.');
-    process.exit(1);
-    return;
+    throw new CliExitError();
   }
 
   // --dry-run: print steps and exit
@@ -213,13 +247,11 @@ export async function applyCommand(options: CLIApplyOptions): Promise<void> {
     const stagingDirs = await findStagingDirs(outputDir);
     if (stagingDirs.length === 0) {
       logger.error('No staging directory found to resume. Run without --resume to start fresh.');
-      process.exit(1);
-      return;
+      throw new CliExitError();
     }
     if (stagingDirs.length > 1) {
       logger.error(`Multiple staging directories found. Run with --cleanup first.`);
-      process.exit(1);
-      return;
+      throw new CliExitError();
     }
     stagingDir = stagingDirs[0];
     logPath = getLogPath(stagingDir);
@@ -229,8 +261,7 @@ export async function applyCommand(options: CLIApplyOptions): Promise<void> {
     const headerEntry = logEntries.find((e) => e.id === 'header');
     if (headerEntry?.planHash && headerEntry.planHash !== planHash) {
       logger.error('Plan file has changed since the staging directory was created. Use --cleanup first.');
-      process.exit(1);
-      return;
+      throw new CliExitError();
     }
 
     const completedSteps = logEntries.filter((e) => e.status === 'completed').length;
@@ -250,7 +281,7 @@ export async function applyCommand(options: CLIApplyOptions): Promise<void> {
       if (!(await pathExists(source.path))) {
         logger.error(`Source path not found: ${source.path} (for package "${source.name}")`);
         logger.info('Source repos may have been cleaned up. Regenerate the plan file.');
-        process.exit(1);
+        throw new CliExitError();
       }
     }
   }
@@ -280,6 +311,7 @@ export async function applyCommand(options: CLIApplyOptions): Promise<void> {
       const outputs: string[] = [];
       for (const source of plan.sources) {
         if (signal.aborted) break;
+        assertPathContained(stagingDir, path.join(plan.packagesDir, source.name));
         const targetPath = path.join(stagingDir, plan.packagesDir, source.name);
         if (await pathExists(targetPath)) {
           logger.debug(`Package "${source.name}" already in staging, skipping`);
@@ -309,6 +341,7 @@ export async function applyCommand(options: CLIApplyOptions): Promise<void> {
       const outputs: string[] = [];
       for (const file of plan.files) {
         if (signal.aborted) break;
+        assertPathContained(stagingDir, file.relativePath);
         const filePath = path.join(stagingDir, file.relativePath);
         await ensureDir(path.dirname(filePath));
         await writeFile(filePath, file.content);
@@ -325,8 +358,8 @@ export async function applyCommand(options: CLIApplyOptions): Promise<void> {
     if (plan.install) {
       const installOk = await executeStep('install', logPath, logEntries, signal, logger, async () => {
         const cmd = plan.installCommand || 'pnpm install --ignore-scripts';
-        logger.info(`Installing dependencies: ${cmd}`);
-        const [exe, ...args] = cmd.split(' ');
+        const { exe, args } = validateInstallCommand(cmd);
+        logger.info(`Installing dependencies: ${exe} ${args.join(' ')}`);
         execFileSync(exe, args, {
           cwd: stagingDir,
           stdio: options.verbose ? 'inherit' : 'pipe',

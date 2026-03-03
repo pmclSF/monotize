@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import {
   getPackageManagerVersion,
@@ -11,12 +12,24 @@ import {
   getPackageManagerField,
   parsePackageManagerType,
   getPackageManagerDisplayName,
+  isYarnBerry,
+  detectPackageManager,
+  detectPackageManagerFromSources,
 } from '../../../src/strategies/package-manager.js';
 
 // Mock execFileSync
 vi.mock('node:child_process', () => ({
   execFileSync: vi.fn(),
 }));
+
+// Mock pathExists from utils/fs
+vi.mock('../../../src/utils/fs.js', async (importOriginal) => {
+  const orig = await importOriginal<typeof import('../../../src/utils/fs.js')>();
+  return {
+    ...orig,
+    pathExists: vi.fn(),
+  };
+});
 
 describe('Package Manager Strategy', () => {
   beforeEach(() => {
@@ -300,6 +313,157 @@ describe('Package Manager Strategy', () => {
       expect(getPackageManagerDisplayName('yarn')).toBe('yarn (classic)');
       expect(getPackageManagerDisplayName('yarn-berry')).toBe('yarn (berry)');
       expect(getPackageManagerDisplayName('npm')).toBe('npm');
+    });
+  });
+
+  describe('isYarnBerry', () => {
+    it('should return true when .yarnrc.yml exists', async () => {
+      const { pathExists } = await import('../../../src/utils/fs.js');
+      vi.mocked(pathExists).mockResolvedValue(true);
+
+      const result = await isYarnBerry('/some/dir');
+      expect(result).toBe(true);
+    });
+
+    it('should check yarn version when no .yarnrc.yml', async () => {
+      const { pathExists } = await import('../../../src/utils/fs.js');
+      vi.mocked(pathExists).mockResolvedValue(false);
+      vi.mocked(execFileSync).mockReturnValue('4.1.0\n');
+
+      const result = await isYarnBerry('/some/dir');
+      expect(result).toBe(true);
+    });
+
+    it('should return false for yarn classic version', async () => {
+      const { pathExists } = await import('../../../src/utils/fs.js');
+      vi.mocked(pathExists).mockResolvedValue(false);
+      vi.mocked(execFileSync).mockReturnValue('1.22.22\n');
+
+      const result = await isYarnBerry('/some/dir');
+      expect(result).toBe(false);
+    });
+
+    it('should return false when yarn is not installed and no dirPath', async () => {
+      vi.mocked(execFileSync).mockImplementation(() => {
+        throw new Error('Command not found');
+      });
+
+      const result = await isYarnBerry();
+      expect(result).toBe(false);
+    });
+
+    it('should return false when yarn is not installed with dirPath', async () => {
+      const { pathExists } = await import('../../../src/utils/fs.js');
+      vi.mocked(pathExists).mockResolvedValue(false);
+      vi.mocked(execFileSync).mockImplementation(() => {
+        throw new Error('Command not found');
+      });
+
+      const result = await isYarnBerry('/some/dir');
+      expect(result).toBe(false);
+    });
+  });
+
+  describe('detectPackageManager', () => {
+    it('should detect pnpm from lock file', async () => {
+      const { pathExists } = await import('../../../src/utils/fs.js');
+      vi.mocked(pathExists).mockImplementation(async (p: string) => {
+        return p.endsWith('pnpm-lock.yaml');
+      });
+
+      const result = await detectPackageManager('/some/dir');
+      expect(result).toBe('pnpm');
+    });
+
+    it('should detect yarn classic from lock file', async () => {
+      const { pathExists } = await import('../../../src/utils/fs.js');
+      vi.mocked(pathExists).mockImplementation(async (p: string) => {
+        if (p.endsWith('yarn.lock')) return true;
+        if (p.endsWith('.yarnrc.yml')) return false;
+        return false;
+      });
+      // Yarn classic version
+      vi.mocked(execFileSync).mockReturnValue('1.22.22\n');
+
+      const result = await detectPackageManager('/some/dir');
+      expect(result).toBe('yarn');
+    });
+
+    it('should detect yarn-berry from lock file + yarnrc', async () => {
+      const { pathExists } = await import('../../../src/utils/fs.js');
+      vi.mocked(pathExists).mockImplementation(async (p: string) => {
+        if (p.endsWith('pnpm-lock.yaml')) return false;
+        if (p.endsWith('yarn.lock')) return true;
+        if (p.endsWith('.yarnrc.yml')) return true;
+        return false;
+      });
+
+      const result = await detectPackageManager('/some/dir');
+      expect(result).toBe('yarn-berry');
+    });
+
+    it('should detect npm from lock file', async () => {
+      const { pathExists } = await import('../../../src/utils/fs.js');
+      vi.mocked(pathExists).mockImplementation(async (p: string) => {
+        return p.endsWith('package-lock.json');
+      });
+
+      const result = await detectPackageManager('/some/dir');
+      expect(result).toBe('npm');
+    });
+
+    it('should return null when no lock files found', async () => {
+      const { pathExists } = await import('../../../src/utils/fs.js');
+      vi.mocked(pathExists).mockResolvedValue(false);
+
+      const result = await detectPackageManager('/some/dir');
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('detectPackageManagerFromSources', () => {
+    it('should return the most common package manager', async () => {
+      const { pathExists } = await import('../../../src/utils/fs.js');
+      vi.mocked(pathExists).mockImplementation(async (p: string) => {
+        // All repos use pnpm
+        return p.endsWith('pnpm-lock.yaml');
+      });
+
+      const result = await detectPackageManagerFromSources([
+        { path: '/a', name: 'a' },
+        { path: '/b', name: 'b' },
+        { path: '/c', name: 'c' },
+      ]);
+      expect(result).toBe('pnpm');
+    });
+
+    it('should return null when no repos have lock files', async () => {
+      const { pathExists } = await import('../../../src/utils/fs.js');
+      vi.mocked(pathExists).mockResolvedValue(false);
+
+      const result = await detectPackageManagerFromSources([
+        { path: '/a', name: 'a' },
+        { path: '/b', name: 'b' },
+      ]);
+      expect(result).toBeNull();
+    });
+
+    it('should return the majority PM when mixed', async () => {
+      const { pathExists } = await import('../../../src/utils/fs.js');
+      vi.mocked(pathExists).mockImplementation(async (p: string) => {
+        // Repo /a has pnpm, repo /b has npm, repo /c has pnpm
+        if (path.normalize(p) === path.normalize(path.join('/a', 'pnpm-lock.yaml'))) return true;
+        if (path.normalize(p) === path.normalize(path.join('/b', 'package-lock.json'))) return true;
+        if (path.normalize(p) === path.normalize(path.join('/c', 'pnpm-lock.yaml'))) return true;
+        return false;
+      });
+
+      const result = await detectPackageManagerFromSources([
+        { path: '/a', name: 'a' },
+        { path: '/b', name: 'b' },
+        { path: '/c', name: 'c' },
+      ]);
+      expect(result).toBe('pnpm');
     });
   });
 });

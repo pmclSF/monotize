@@ -1,4 +1,8 @@
 import { describe, it, expect } from 'vitest';
+import path from 'node:path';
+import os from 'node:os';
+import crypto from 'node:crypto';
+import fs from 'fs-extra';
 import type { ApplyPlan } from '../../../src/types/index.js';
 import type { VerifyContext } from '../../../src/commands/verify-checks.js';
 import {
@@ -37,6 +41,13 @@ function basePlan(overrides: Partial<ApplyPlan> = {}): ApplyPlan {
 
 function planCtx(plan: ApplyPlan): VerifyContext {
   return { plan, dir: null };
+}
+
+async function createTempDir(prefix: string): Promise<string> {
+  const id = crypto.randomBytes(6).toString('hex');
+  const dir = path.join(os.tmpdir(), `${prefix}-${id}`);
+  await fs.ensureDir(dir);
+  return dir;
 }
 
 // ---------------------------------------------------------------------------
@@ -107,6 +118,33 @@ describe('checkWorkspaceConfig', () => {
     const checks = await checkWorkspaceConfig(planCtx(plan));
     expect(checks[0].status).toBe('fail');
   });
+
+  it('returns explicit failure when root package.json cannot be read (dir mode)', async () => {
+    const dir = await createTempDir('verify-workspace-config');
+    try {
+      await fs.writeFile(path.join(dir, 'package.json'), '{ invalid json }', 'utf-8');
+
+      const checks = await checkWorkspaceConfig({ plan: null, dir });
+      expect(checks.find((c) => c.id === 'workspace-config')?.status).toBe('fail');
+      expect(checks.find((c) => c.id === 'workspace-config:root-package-json')?.status).toBe('fail');
+    } finally {
+      await fs.remove(dir).catch(() => {});
+    }
+  });
+
+  it('still reports root package read failure even when pnpm-workspace.yaml exists', async () => {
+    const dir = await createTempDir('verify-workspace-config');
+    try {
+      await fs.writeFile(path.join(dir, 'package.json'), '{ invalid json }', 'utf-8');
+      await fs.writeFile(path.join(dir, 'pnpm-workspace.yaml'), "packages:\n  - 'packages/*'\n", 'utf-8');
+
+      const checks = await checkWorkspaceConfig({ plan: null, dir });
+      expect(checks.find((c) => c.id === 'workspace-config')?.status).toBe('pass');
+      expect(checks.find((c) => c.id === 'workspace-config:root-package-json')?.status).toBe('fail');
+    } finally {
+      await fs.remove(dir).catch(() => {});
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -138,6 +176,24 @@ describe('checkPackageNames', () => {
     const plan = basePlan({ sources: [], files: [] });
     const checks = await checkPackageNames(planCtx(plan));
     expect(checks[0].status).toBe('warn');
+  });
+
+  it('fails when package.json files cannot be parsed (dir mode)', async () => {
+    const dir = await createTempDir('verify-package-names');
+    try {
+      await fs.ensureDir(path.join(dir, 'packages', 'pkg-a'));
+      await fs.writeFile(
+        path.join(dir, 'packages', 'pkg-a', 'package.json'),
+        '{ invalid json }',
+        'utf-8'
+      );
+
+      const checks = await checkPackageNames({ plan: null, dir });
+      expect(checks.find((c) => c.id.startsWith('pkg-read-error:'))?.status).toBe('fail');
+      expect(checks.find((c) => c.id === 'pkg-names')?.status).toBe('fail');
+    } finally {
+      await fs.remove(dir).catch(() => {});
+    }
   });
 });
 
@@ -271,5 +327,19 @@ describe('checkRequiredFields', () => {
     const checks = await checkRequiredFields(planCtx(plan));
     const enginesCheck = checks.find((c) => c.id === 'root-engines');
     expect(enginesCheck?.status).toBe('warn');
+  });
+
+  it('fails when root package.json cannot be read (dir mode)', async () => {
+    const dir = await createTempDir('verify-required-fields');
+    try {
+      await fs.writeFile(path.join(dir, 'package.json'), '{ invalid json }', 'utf-8');
+
+      const checks = await checkRequiredFields({ plan: null, dir });
+      const enginesCheck = checks.find((c) => c.id === 'root-engines');
+      expect(enginesCheck?.status).toBe('fail');
+      expect(enginesCheck?.message).toContain('Could not read root package.json');
+    } finally {
+      await fs.remove(dir).catch(() => {});
+    }
   });
 });

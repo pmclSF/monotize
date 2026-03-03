@@ -47,21 +47,20 @@ describe('Dependency Analysis Edge Cases', () => {
     describe('range versions', () => {
       it('should handle >=x.y.z <a.b.c ranges', () => {
         const versions = ['>=1.0.0 <2.0.0', '^1.5.0', '1.9.0'];
-        // Range versions can't be parsed as simple semver
         const highest = getHighestVersion(versions);
-        expect(highest).toBeDefined();
+        expect(highest).toBe('1.9.0');
       });
 
       it('should handle hyphen ranges (1.0.0 - 2.0.0)', () => {
         const versions = ['1.0.0 - 2.0.0', '1.5.0'];
         const highest = getHighestVersion(versions);
-        expect(highest).toBeDefined();
+        expect(highest).toBe('1.5.0');
       });
 
       it('should handle or ranges (||)', () => {
-        const versions = ['^1.0.0 || ^2.0.0', '1.5.0'];
+        const versions = ['^1.0.0 || ^2.0.0', '^2.5.0'];
         const highest = getHighestVersion(versions);
-        expect(highest).toBeDefined();
+        expect(highest).toBe('^2.5.0');
       });
     });
 
@@ -193,6 +192,7 @@ describe('Dependency Analysis Edge Cases', () => {
 
       // Should gracefully handle malformed JSON
       expect(result.packages).toHaveLength(0);
+      expect(result.warnings?.some((w) => w.type === 'parse-error' && w.source === 'malformed')).toBe(true);
     });
 
     it('should handle wildcard dependencies', async () => {
@@ -351,6 +351,99 @@ describe('Dependency Analysis Edge Cases', () => {
       // Check that highest versions are resolved
       expect(result.resolvedDependencies['lodash']).toBe('^4.17.21');
       expect(result.resolvedDependencies['axios']).toBe('^1.5.0');
+    });
+  });
+
+  describe('peer conflict and devDependencies paths', () => {
+    it('should generate decisions for peer dependency violations', async () => {
+      // Repo with a peerDependency on react >=18 but another repo only has react 17
+      const fixture1 = await createTempFixture({
+        name: 'peer-host',
+        packageJson: {
+          name: 'peer-host',
+          version: '1.0.0',
+          dependencies: { react: '^17.0.0' },
+        },
+      });
+      const fixture2 = await createTempFixture({
+        name: 'peer-consumer',
+        packageJson: {
+          name: 'peer-consumer',
+          version: '1.0.0',
+          peerDependencies: { react: '>=18.0.0' },
+        },
+      });
+
+      const result = await analyzeDependencies([
+        { path: fixture1, name: 'peer-host' },
+        { path: fixture2, name: 'peer-consumer' },
+      ]);
+
+      // Should have a peer-constraint-violation decision
+      const peerDecision = result.findings?.decisions.find(
+        (d) => d.kind === 'peer-constraint-violation',
+      );
+      expect(peerDecision).toBeDefined();
+      expect(peerDecision!.description).toContain('react');
+    });
+
+    it('should deduplicate peer conflict with declared conflict of same name', async () => {
+      // Two repos with different react versions (declared conflict) + peer constraint violation
+      const fixture1 = await createTempFixture({
+        name: 'repo-react-17',
+        packageJson: {
+          name: 'repo-react-17',
+          version: '1.0.0',
+          dependencies: { react: '^17.0.0' },
+        },
+      });
+      const fixture2 = await createTempFixture({
+        name: 'repo-react-18',
+        packageJson: {
+          name: 'repo-react-18',
+          version: '1.0.0',
+          dependencies: { react: '^18.0.0' },
+          peerDependencies: { react: '>=18.0.0' },
+        },
+      });
+
+      const result = await analyzeDependencies([
+        { path: fixture1, name: 'repo-react-17' },
+        { path: fixture2, name: 'repo-react-18' },
+      ]);
+
+      // Should have both declared and peer conflicts (deduplicated with __peer suffix)
+      const reactConflicts = result.conflicts.filter((c) => c.name.startsWith('react'));
+      expect(reactConflicts.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('should resolve devDependencies-only packages to resolvedDevDependencies', async () => {
+      // One repo with a devDependency, another with same devDependency (no deps version)
+      const fixture1 = await createTempFixture({
+        name: 'dev-repo-1',
+        packageJson: {
+          name: 'dev-repo-1',
+          version: '1.0.0',
+          devDependencies: { vitest: '^1.0.0' },
+        },
+      });
+      const fixture2 = await createTempFixture({
+        name: 'dev-repo-2',
+        packageJson: {
+          name: 'dev-repo-2',
+          version: '1.0.0',
+          devDependencies: { vitest: '^1.5.0' },
+        },
+      });
+
+      const result = await analyzeDependencies([
+        { path: fixture1, name: 'dev-repo-1' },
+        { path: fixture2, name: 'dev-repo-2' },
+      ]);
+
+      // vitest should appear only in resolvedDevDependencies (not in resolvedDependencies)
+      expect(result.resolvedDevDependencies['vitest']).toBeDefined();
+      expect(result.resolvedDependencies['vitest']).toBeUndefined();
     });
   });
 
